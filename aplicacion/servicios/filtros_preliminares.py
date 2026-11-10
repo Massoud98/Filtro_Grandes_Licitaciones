@@ -1,4 +1,4 @@
-﻿"""Filtros preliminares y clasificación conservadora de licitaciones."""
+"""Filtros preliminares y clasificacion conservadora de licitaciones."""
 
 import json
 import re
@@ -238,12 +238,12 @@ def interpretar_fecha(valor):
 
 
 def aplicar_filtros(fecha, evaluacion=None):
-    """Evalúa sin modificar los datos originales."""
+    """Evalua sin modificar los datos originales."""
 
     if evaluacion is None:
         evaluacion = datetime.now(ZONA)
     elif evaluacion.tzinfo is None:
-        raise ValueError("La evaluación debe incluir zona horaria.")
+        raise ValueError("La evaluacion debe incluir zona horaria.")
     else:
         evaluacion = evaluacion.astimezone(ZONA)
 
@@ -258,7 +258,7 @@ def aplicar_filtros(fecha, evaluacion=None):
     detalles = datos["detalles"]
 
     if len(ids) != len(set(ids)) or set(ids) != set(detalles):
-        raise ValueError("El conjunto de detalles está incompleto.")
+        raise ValueError("El conjunto de detalles esta incompleto.")
 
     resultados = []
     minimo_cierre = evaluacion + timedelta(days=7)
@@ -336,9 +336,9 @@ def aplicar_filtros(fecha, evaluacion=None):
     guardar_json_atomico(ruta_salida, salida)
 
     print("=== FILTROS PRELIMINARES ===")
-    print("Fecha de publicación:", fecha)
-    print("Evaluación:", evaluacion.isoformat())
-    print("Cierre mínimo:", minimo_cierre.isoformat())
+    print("Fecha de publicacion:", fecha)
+    print("Evaluacion:", evaluacion.isoformat())
+    print("Cierre minimo:", minimo_cierre.isoformat())
     print("Total:", len(resultados))
 
     for estado, cantidad in resumen.items():

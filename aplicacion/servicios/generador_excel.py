@@ -1,4 +1,4 @@
-﻿"""Generación del Excel original de licitaciones de Mercado Público."""
+"""Generacion del Excel original de licitaciones de Mercado Publico."""
 
 import json
 import os
@@ -14,7 +14,7 @@ from aplicacion.servicios.mercado_publico import CARPETA_ORIGINALES
 ENCABEZADOS = [
     "ID",
     "Nombre",
-    "Fecha Publicación",
+    "Fecha Publicacion",
     "Fecha Cierre",
     "Monto Estimado",
     "Archivos Descargables",
@@ -47,7 +47,7 @@ def convertir_fecha(valor):
 
 
 def convertir_monto(valor):
-    """Convierte montos numéricos conservando valores no reconocidos."""
+    """Convierte montos numericos conservando valores no reconocidos."""
     if valor is None or valor == "":
         return None
 
@@ -80,7 +80,7 @@ def generar_excel_original(fecha):
     errores = progreso.get("errores", {})
 
     if not ids or not all(ids) or len(ids) != len(set(ids)):
-        raise ValueError("Existen identificadores inválidos o duplicados.")
+        raise ValueError("Existen identificadores invalidos o duplicados.")
 
     if progreso.get("ids") != ids:
         raise ValueError("El orden de los identificadores no coincide.")
@@ -98,7 +98,7 @@ def generar_excel_original(fecha):
             not isinstance(detalle, dict)
             or str(detalle.get("CodigoExterno") or "").strip() != codigo
         ):
-            raise ValueError(f"Detalle inválido: {codigo}")
+            raise ValueError(f"Detalle invalido: {codigo}")
 
     libro = Workbook()
     hoja = libro.active
@@ -127,7 +127,7 @@ def generar_excel_original(fecha):
             publicacion,
             cierre,
             monto,
-            "Pendiente de verificación",
+            "Pendiente de verificacion",
         ])
 
     color_encabezado = "17365D"
@@ -216,7 +216,7 @@ def generar_excel_original(fecha):
 
         if filas != len(ids) or columnas != len(ENCABEZADOS):
             raise RuntimeError(
-                "La validación del archivo Excel no fue satisfactoria."
+                "La validacion del archivo Excel no fue satisfactoria."
             )
 
         os.replace(ruta_temporal, ruta_salida)
@@ -230,7 +230,7 @@ def generar_excel_original(fecha):
     print("Licitaciones exportadas:", filas)
     print("Columnas:", columnas)
     print("Sin monto estimado:", sin_monto)
-    print("Sin fecha publicación:", sin_publicacion)
+    print("Sin fecha publicacion:", sin_publicacion)
     print("Sin fecha cierre:", sin_cierre)
     print("Adjuntos pendientes:", filas)
     print("Archivo:", ruta_salida)

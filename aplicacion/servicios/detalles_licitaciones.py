@@ -1,4 +1,4 @@
-﻿"""Obtención de detalles de licitaciones con guardado y reanudación."""
+"""Obtencion de detalles de licitaciones con guardado y reanudacion."""
 
 import json
 import os
@@ -41,14 +41,14 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
     ]
 
     if not ids or not all(ids) or len(ids) != len(set(ids)):
-        raise ValueError("El listado contiene IDs inválidos o duplicados.")
+        raise ValueError("El listado contiene IDs invalidos o duplicados.")
 
     if limite is not None and (
         not isinstance(limite, int)
         or isinstance(limite, bool)
         or limite < 1
     ):
-        raise ValueError("El límite debe ser un entero positivo.")
+        raise ValueError("El limite debe ser un entero positivo.")
 
     if intervalo < 0:
         raise ValueError("El intervalo no puede ser negativo.")
@@ -56,7 +56,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
     ticket = os.environ.get("API_MP", "").strip()
 
     if not ticket:
-        raise RuntimeError("No se encontró la credencial API_MP.")
+        raise RuntimeError("No se encontro la credencial API_MP.")
 
     detalles = {}
     errores = {}
@@ -72,8 +72,8 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
 
         if progreso.get("ids") != ids:
             raise ValueError(
-                "El listado cambió desde el último guardado. "
-                "Se requiere revisión antes de continuar."
+                "El listado cambio desde el ultimo guardado. "
+                "Se requiere revision antes de continuar."
             )
 
         detalles = progreso.get("detalles", {})
@@ -87,7 +87,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
             for codigo, valor in detalles.items()
         ):
             raise ValueError(
-                "El archivo de progreso contiene detalles inválidos."
+                "El archivo de progreso contiene detalles invalidos."
             )
 
     def guardar_progreso():
@@ -110,7 +110,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
     if limite is not None:
         pendientes = pendientes[:limite]
 
-    print("=== RECUPERACIÓN DE DETALLES ===")
+    print("=== RECUPERACION DE DETALLES ===")
     print("Fecha:", fecha)
     print("Total de licitaciones:", len(ids))
     print("Detalles recuperados:", len(detalles))
@@ -144,17 +144,17 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
             contenido = respuesta.json()
 
             if not isinstance(contenido, dict):
-                raise ValueError("Respuesta JSON inválida.")
+                raise ValueError("Respuesta JSON invalida.")
 
             listado = contenido.get("Listado")
 
             if not isinstance(listado, list) or not listado:
-                raise ValueError("Listado vacío o inválido.")
+                raise ValueError("Listado vacio o invalido.")
 
             detalle = listado[0]
 
             if not isinstance(detalle, dict):
-                raise ValueError("Detalle inválido.")
+                raise ValueError("Detalle invalido.")
 
             codigo_recibido = str(
                 detalle.get("CodigoExterno") or ""
@@ -162,7 +162,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
 
             if codigo_recibido != codigo:
                 raise ValueError(
-                    "El código recibido no coincide con el solicitado."
+                    "El codigo recibido no coincide con el solicitado."
                 )
 
         except (requests.RequestException, ValueError) as error:
@@ -172,7 +172,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
             guardar_progreso()
 
             print("ERROR:", error)
-            print("Proceso detenido sin reintentos automáticos.")
+            print("Proceso detenido sin reintentos automaticos.")
             break
 
         detalles[codigo] = detalle
@@ -196,7 +196,7 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
     print("Detalles guardados:", len(detalles))
     print("Pendientes:", len(ids) - len(detalles))
     print("Errores registrados:", len(errores))
-    print("Duración (s):", round(duracion, 2))
+    print("Duracion (s):", round(duracion, 2))
     print("Archivo:", ruta_detalles)
 
     return {

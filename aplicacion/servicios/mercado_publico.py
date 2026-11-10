@@ -1,4 +1,4 @@
-﻿"""Consulta de licitaciones publicadas en Mercado Público."""
+"""Consulta de licitaciones publicadas en Mercado Publico."""
 
 import json
 import os
@@ -21,13 +21,13 @@ CARPETA_ORIGINALES = RAIZ_PROYECTO / "datos" / "originales"
 
 
 def obtener_fecha_ayer():
-    """Obtiene la fecha de ayer según el horario de Chile."""
+    """Obtiene la fecha de ayer segun el horario de Chile."""
     hoy = datetime.now(ZONA_HORARIA).date()
     return hoy - timedelta(days=1)
 
 
 def guardar_json_atomico(ruta, contenido):
-    """Guarda información JSON sin sobrescribir directamente el destino."""
+    """Guarda informacion JSON sin sobrescribir directamente el destino."""
     ruta.parent.mkdir(parents=True, exist_ok=True)
     temporal = ruta.with_suffix(ruta.suffix + ".tmp")
 
@@ -45,7 +45,7 @@ def consultar_licitaciones(fecha=None, ticket=None):
     """
     Consulta licitaciones publicadas para una fecha.
 
-    Si no se indica fecha, consulta el día anterior en Chile.
+    Si no se indica fecha, consulta el dia anterior en Chile.
     """
     if fecha is None:
         fecha = obtener_fecha_ayer()
@@ -58,14 +58,14 @@ def consultar_licitaciones(fecha=None, ticket=None):
 
     if not ticket:
         raise RuntimeError(
-            "No se encontró la credencial API_MP. "
+            "No se encontro la credencial API_MP. "
             "Configure la variable de entorno antes de consultar."
         )
 
     fecha_api = fecha.strftime("%d%m%Y")
     fecha_iso = fecha.isoformat()
 
-    print("=== CONSULTA MERCADO PÚBLICO ===")
+    print("=== CONSULTA MERCADO PUBLICO ===")
     print("Fecha consultada:", fecha_iso)
 
     respuesta = requests.get(
@@ -77,19 +77,19 @@ def consultar_licitaciones(fecha=None, ticket=None):
         timeout=60,
     )
 
-    # No se realizan reintentos automáticos ante errores de acceso.
+    # No se realizan reintentos automaticos ante errores de acceso.
     respuesta.raise_for_status()
 
     datos = respuesta.json()
 
     if not isinstance(datos, dict):
-        raise RuntimeError("La API devolvió un formato inesperado.")
+        raise RuntimeError("La API devolvio un formato inesperado.")
 
     registros = datos.get("Listado")
 
     if not isinstance(registros, list):
         raise RuntimeError(
-            "La respuesta no contiene un listado válido."
+            "La respuesta no contiene un listado valido."
         )
 
     publicadas = [
@@ -132,7 +132,7 @@ def consultar_licitaciones(fecha=None, ticket=None):
     print("Registros recibidos:", len(registros))
     print("Registros publicados:", len(publicadas))
     print("Duplicados eliminados:", len(publicadas) - len(licitaciones))
-    print("Licitaciones únicas:", len(licitaciones))
+    print("Licitaciones unicas:", len(licitaciones))
     print("Archivo:", ruta_salida)
 
     return resultado

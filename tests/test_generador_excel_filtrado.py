@@ -139,7 +139,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
                 [
                     "Resumen",
                     "Incluidas",
-                    "Revisi\u00f3n manual",
+                    "Revision manual",
                     "Excluidas",
                 ],
             )
@@ -151,7 +151,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
                 libro["Incluidas"].max_row - 1, 2
             )
             self.assertEqual(
-                libro["Revisi\u00f3n manual"].max_row - 1,
+                libro["Revision manual"].max_row - 1,
                 1,
             )
             self.assertEqual(
@@ -166,7 +166,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             for nombre in (
                 "Incluidas",
-                "Revisi\u00f3n manual",
+                "Revision manual",
                 "Excluidas",
             ):
                 hoja = libro[nombre]
@@ -195,7 +195,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
 
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
-            hoja = libro["Revisi\u00f3n manual"]
+            hoja = libro["Revision manual"]
             self.assertEqual(hoja.max_row, 1)
             self.assertEqual(hoja.max_column, 10)
 

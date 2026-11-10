@@ -1,4 +1,4 @@
-"""Generación del Excel de licitaciones filtradas."""
+"""Generacion del Excel de licitaciones filtradas."""
 
 import json
 import os
@@ -23,12 +23,12 @@ ENCABEZADOS = [
     "ID",
     "Tipo",
     "Nombre",
-    "Fecha publicación",
+    "Fecha publicacion",
     "Fecha cierre",
     "Monto estimado",
     "Estado",
     "Motivos / observaciones",
-    "Clasificación L1",
+    "Clasificacion L1",
     "Adjuntos",
 ]
 
@@ -129,7 +129,7 @@ def crear_hoja_licitaciones(libro, nombre, filas, detalles):
             fila["estado"],
             " | ".join(explicaciones),
             estado_l1,
-            "Pendiente de verificación",
+            "Pendiente de verificacion",
         ])
 
         if numero_fila % 2 == 0:
@@ -182,7 +182,7 @@ def crear_hoja_licitaciones(libro, nombre, filas, detalles):
 
 
 def crear_resumen(libro, reporte):
-    """Crea el resumen de la evaluación."""
+    """Crea el resumen de la evaluacion."""
 
     hoja = libro.active
     hoja.title = "Resumen"
@@ -194,12 +194,12 @@ def crear_resumen(libro, reporte):
     total = reporte["total"]
 
     datos = [
-        ("Fecha de publicación", reporte["fecha_publicacion"]),
-        ("Fecha de evaluación", reporte["evaluado_en"]),
-        ("Cierre mínimo", reporte["cierre_minimo"]),
+        ("Fecha de publicacion", reporte["fecha_publicacion"]),
+        ("Fecha de evaluacion", reporte["evaluado_en"]),
+        ("Cierre minimo", reporte["cierre_minimo"]),
         ("Total licitaciones", total),
         ("Incluidas", resumen["incluida"]),
-        ("Revisión manual", resumen["revision_manual"]),
+        ("Revision manual", resumen["revision_manual"]),
         ("Excluidas", resumen["excluida"]),
         (
             "Porcentaje incluidas",
@@ -279,7 +279,7 @@ def generar_excel_filtrado(fecha):
 
     distribucion = [
         ("Incluidas", "incluida"),
-        ("Revisión manual", "revision_manual"),
+        ("Revision manual", "revision_manual"),
         ("Excluidas", "excluida"),
     ]
 
