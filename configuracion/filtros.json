@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "excluir_tipos": [
+    "O1"
+  ],
+  "filtro_l1": {
+    "activo": true,
+    "categorias_permitidas": [
+      "alimentos",
+      "vestimenta"
+    ],
+    "clasificacion_ambigua": "revision_manual"
+  },
+  "dias_minimos_para_cierre": 7
+}

@@ -218,3 +218,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Entorno virtual y archivos locales
+.venv/
+.env
+.env.*
+!.env.example
+
+# Datos generados y documentos descargados
+/datos/
+/*.xlsx
+/*.xls
+/*.csv
+/*.sqlite3
+/*.db
+
+# Archivos temporales
+*.log
