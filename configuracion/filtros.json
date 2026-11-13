@@ -11,5 +11,6 @@
     ],
     "clasificacion_ambigua": "revision_manual"
   },
-  "dias_minimos_para_cierre": 7
+  "dias_minimos_para_cierre": 7,
+  "monto_minimo_clp": 20000000
 }

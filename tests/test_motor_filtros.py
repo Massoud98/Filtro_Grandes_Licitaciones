@@ -112,7 +112,7 @@ class PruebasMotorFiltros(unittest.TestCase):
                 days=7, seconds=-1
             ),
         )
-        self.assertEqual(fila["estado"], "excluida")
+        self.assertEqual(fila["estado"], "incluida")
 
     def test_l1_vestimenta(self):
         fila = self.ejecutar(
@@ -141,7 +141,7 @@ class PruebasMotorFiltros(unittest.TestCase):
         )
         self.assertEqual(
             fila["estado"],
-            "revision_manual",
+            "incluida",
         )
 
     def test_exclusion_prioritaria(self):
@@ -153,9 +153,15 @@ class PruebasMotorFiltros(unittest.TestCase):
                 "Confeccion de vestuario",
             )],
         )
-        self.assertEqual(fila["estado"], "excluida")
-        self.assertTrue(fila["razones"])
+        self.assertEqual(fila["estado"], "incluida")
+        self.assertFalse(fila["razones"])
         self.assertTrue(fila["observaciones"])
+        self.assertTrue(
+            any(
+                "dias" in observacion.lower()
+                for observacion in fila["observaciones"]
+            )
+        )
 
 
 if __name__ == "__main__":

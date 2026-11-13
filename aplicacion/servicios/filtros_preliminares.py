@@ -7,6 +7,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from aplicacion.servicios.configuracion_filtros import cargar_configuracion
+from aplicacion.servicios.evaluacion_montos import evaluar_monto
+from aplicacion.servicios.banco_central import ErrorBancoCentral
+from aplicacion.servicios.snapshots_monedas import (
+    ErrorSnapshotMonedas,
+    obtener_snapshot,
+)
+
 from aplicacion.servicios.mercado_publico import (
     CARPETA_ORIGINALES,
     guardar_json_atomico,
@@ -91,15 +99,15 @@ def obtener_items(detalle):
 
 
 def clasificar_l1(detalle):
-    """Clasifica L1 usando categor?as, productos y descripciones."""
+    """Clasifica L1 con inclusion permisiva de alimentos y vestimenta."""
 
     items = obtener_items(detalle)
 
     if not items:
         return {
-            "clasificacion": "revision_manual",
+            "clasificacion": "excluir",
             "categorias_detectadas": [],
-            "motivo": "No hay productos disponibles para clasificar.",
+            "motivo": "No hay productos disponibles.",
             "indicios_servicio": False,
         }
 
@@ -123,20 +131,12 @@ def clasificar_l1(detalle):
     ]
 
     categorias_detectadas = set()
-    evidencias_positivas = []
-    evidencias_contrarias = []
-    codigos_desconocidos = []
 
     for item in items:
         codigo = str(item.get("CodigoCategoria") or "").strip()
         producto = normalizar(item.get("NombreProducto"))
         descripcion = normalizar(item.get("Descripcion"))
-        categoria = normalizar(item.get("Categoria"))
 
-        texto_producto = f"{producto} {descripcion}"
-
-        # "Uniforme" puede describir una propiedad, no vestimenta.
-        # Ejemplo: medallas de di?metro uniforme.
         patrones_descripcion_ropa = [
             patron for patron in patrones_ropa
             if patron != r"\buniformes?\b"
@@ -151,65 +151,30 @@ def clasificar_l1(detalle):
         )
 
         es_alimento = bool(buscar_patrones(
-            texto_producto, PATRONES_ALIMENTOS
+            f"{producto} {descripcion}",
+            PATRONES_ALIMENTOS
         ))
 
-        # Categor?as candidatas: requieren revisi?n del producto.
         codigo_alimento = codigo.startswith("50")
         codigo_ropa = codigo.startswith(("5310", "5311"))
         codigo_proteccion = codigo.startswith("461815")
 
-        categoria_potencial = codigo.startswith(("50", "53", "4618"))
-
-        # Los c?digos son indicios, no decisiones absolutas.
-        if codigo_alimento:
+        if codigo_alimento or es_alimento:
             categorias_detectadas.add("alimentos")
-            evidencias_positivas.append("Categor?a alimentaria")
-        elif codigo_ropa or codigo_proteccion:
-            categorias_detectadas.add("vestimenta")
-            evidencias_positivas.append("Categor?a de vestimenta o protecci?n")
-        elif es_ropa:
-            categorias_detectadas.add("vestimenta")
-            evidencias_positivas.append("Producto descrito como vestimenta")
-        elif categoria_potencial or es_alimento:
-            # Evitar exclusiones autom?ticas de casos dudosos.
-            codigos_desconocidos.append(
-                f"Producto potencialmente relevante: {codigo}"
-            )
-        elif codigo:
-            evidencias_contrarias.append(
-                f"Categor?a distinta: {codigo}"
-            )
-        else:
-            codigos_desconocidos.append(
-                producto or "Producto sin identificar"
-            )
 
-        # Un servicio de confecci?n puede requerir revisi?n.
-        if es_ropa and codigo.startswith("9"):
-            codigos_desconocidos.append(
-                "Vestimenta clasificada como servicio"
-            )
+        if codigo_ropa or codigo_proteccion or es_ropa:
+            categorias_detectadas.add("vestimenta")
 
     if categorias_detectadas:
-        if evidencias_contrarias or codigos_desconocidos:
-            clasificacion = "revision_manual"
-            motivo = "Productos mixtos o clasificaci?n contradictoria."
-        else:
-            clasificacion = "incluir"
-            motivo = "Productos identificados como alimentos o vestimenta."
-
-    elif codigos_desconocidos:
-        clasificacion = "revision_manual"
-        motivo = "Productos sin clasificaci?n suficientemente clara."
-
-    elif evidencias_contrarias:
-        clasificacion = "excluir"
-        motivo = "Los productos no corresponden a alimentos o vestimenta."
-
+        clasificacion = "incluir"
+        motivo = (
+            "Se identificaron productos de alimentos o vestimenta."
+        )
     else:
-        clasificacion = "revision_manual"
-        motivo = "No se pudo determinar la categor?a."
+        clasificacion = "excluir"
+        motivo = (
+            "No se identificaron productos de alimentos o vestimenta."
+        )
 
     return {
         "clasificacion": clasificacion,
@@ -220,6 +185,7 @@ def clasificar_l1(detalle):
             for item in items
         ),
     }
+
 
 
 def interpretar_fecha(valor):
@@ -260,8 +226,30 @@ def aplicar_filtros(fecha, evaluacion=None):
     if len(ids) != len(set(ids)) or set(ids) != set(detalles):
         raise ValueError("El conjunto de detalles esta incompleto.")
 
+    configuracion = cargar_configuracion()
+    monto_minimo = configuracion["monto_minimo_clp"]
+
     resultados = []
-    minimo_cierre = evaluacion + timedelta(days=7)
+    minimo_cierre = evaluacion + timedelta(
+        days=configuracion["dias_minimos_para_cierre"]
+    )
+
+    necesita_conversion = any(
+        detalle.get("MontoEstimado") is not None
+        and str(detalle.get("MontoEstimado")).strip() != ""
+        and str(detalle.get("Moneda") or "").strip().upper()
+        in {"USD", "CLF", "UTM"}
+        for detalle in detalles.values()
+    )
+
+    snapshot = None
+    error_conversion = None
+
+    if necesita_conversion:
+        try:
+            snapshot = obtener_snapshot(evaluacion.date())
+        except (ErrorBancoCentral, ErrorSnapshotMonedas) as exc:
+            error_conversion = type(exc).__name__
 
     for codigo in ids:
         detalle = detalles[codigo]
@@ -275,35 +263,83 @@ def aplicar_filtros(fecha, evaluacion=None):
         razones = []
         observaciones = []
         clasificacion = None
-        revision_manual = False
 
+        # 1. O1: exclusion takes priority.
         if tipo == "O1":
             razones.append("Tipo O1 excluido.")
 
-        if cierre is None:
-            revision_manual = True
-            observaciones.append(
-                "Fecha de cierre ausente o inv?lida."
-            )
-        elif cierre < minimo_cierre:
-            razones.append("Cierre en menos de siete d?as.")
+        # 2. Classify categories for all types.
+        # The L1 category restriction remains unchanged.
+        clasificacion = clasificar_l1(detalle)
 
         if tipo == "L1":
-            clasificacion = clasificar_l1(detalle)
-
-            if clasificacion["clasificacion"] == "excluir":
+            if (
+                not razones
+                and clasificacion["clasificacion"] == "excluir"
+            ):
                 razones.append(clasificacion["motivo"])
 
             elif clasificacion["clasificacion"] == "revision_manual":
-                revision_manual = True
                 observaciones.append(clasificacion["motivo"])
 
-        if razones:
-            estado = "excluida"
-        elif revision_manual:
-            estado = "revision_manual"
-        else:
-            estado = "incluida"
+        # 3. Closing date: compare calendar dates.
+        if cierre is None:
+            observaciones.append(
+                "Fecha de cierre ausente o invalida."
+            )
+
+        elif cierre.date() < minimo_cierre.date():
+            observaciones.append(
+                f"Cierre en menos de "
+                f"{configuracion['dias_minimos_para_cierre']} dias."
+            )
+
+        # 4. Amount: only confirmed amounts below the threshold
+        # determine exclusion. Other monetary statuses pass.
+        evaluacion_monto = evaluar_monto(
+            detalle,
+            monto_minimo,
+            snapshot,
+        )
+
+        elegible_tienda = (
+            not razones
+            and tipo != "O1"
+            and evaluacion_monto["estado_monto"] == "bajo_minimo"
+            and clasificacion["clasificacion"] == "incluir"
+            and bool(
+                set(clasificacion["categorias_detectadas"])
+                & {"alimentos", "vestimenta"}
+            )
+        )
+
+        if (
+            not razones
+            and evaluacion_monto["excluir"]
+            and not elegible_tienda
+        ):
+            razones.append(
+                "Monto estimado inferior al minimo de 20000000 CLP."
+            )
+
+        if evaluacion_monto["revision_manual"]:
+            observaciones.append(
+                "Monto o conversion requiere revision manual: "
+                + evaluacion_monto["estado_monto"]
+            )
+
+            if error_conversion is not None:
+                observaciones.append(
+                    "Banco Central unavailable: " + error_conversion
+                )
+
+        # Ambiguous or unavailable information never creates
+        # a manual-review classification at this stage.
+        estado = (
+            "excluida" if razones
+            else "posible_tienda" if elegible_tienda
+            else "incluida"
+        )
 
         resultados.append({
             "id": codigo,
@@ -314,19 +350,27 @@ def aplicar_filtros(fecha, evaluacion=None):
             "razones": razones,
             "observaciones": observaciones,
             "clasificacion_l1": clasificacion,
+            "evaluacion_monto": evaluacion_monto,
         })
 
     resumen = {
         estado: sum(
             fila["estado"] == estado for fila in resultados
         )
-        for estado in ("incluida", "revision_manual", "excluida")
+        for estado in (
+            "incluida", "posible_tienda",
+            "revision_manual", "excluida"
+        )
     }
 
     salida = {
         "fecha_publicacion": fecha,
         "evaluado_en": evaluacion.isoformat(),
         "cierre_minimo": minimo_cierre.isoformat(),
+        "monto_minimo_clp": monto_minimo,
+        "fecha_revision_tasas": evaluacion.date().isoformat(),
+        "snapshot_monedas": snapshot,
+        "error_conversion": error_conversion,
         "total": len(resultados),
         "resumen": resumen,
         "resultados": resultados,

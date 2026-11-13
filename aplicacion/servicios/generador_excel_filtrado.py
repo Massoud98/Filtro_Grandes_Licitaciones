@@ -3,7 +3,7 @@
 import json
 import os
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -17,6 +17,10 @@ from aplicacion.servicios.generador_excel import (
 from aplicacion.servicios.filtros_preliminares import (
     CARPETA_ORIGINALES,
 )
+from aplicacion.servicios.estado_adjuntos_excel import (
+    attachment_status_for_tender,
+    build_attachment_status_lookup,
+)
 
 
 ENCABEZADOS = [
@@ -26,10 +30,16 @@ ENCABEZADOS = [
     "Fecha publicacion",
     "Fecha cierre",
     "Monto estimado",
+    "Moneda",
+    "Monto CLP",
+    "Estado monto",
+    "Tasa CLP",
+    "Fecha tasa",
     "Estado",
     "Motivos / observaciones",
     "Clasificacion L1",
     "Adjuntos",
+    "Aviso plazo",
 ]
 
 URL_LICITACION = (
@@ -43,6 +53,7 @@ COLORES = {
     "alternado": "EAF1F8",
     "pendiente": "FFF2CC",
     "incluida": "E2F0D9",
+    "posible_tienda": "DDEBF7",
     "revision_manual": "FFF2CC",
     "excluida": "FCE4D6",
 }
@@ -72,7 +83,10 @@ def preparar_encabezado(hoja):
 def preparar_columnas(hoja):
     """Configura anchos, filtros y paneles inmovilizados."""
 
-    anchos = [22, 12, 75, 23, 23, 22, 20, 65, 24, 30]
+    anchos = [
+        22, 12, 75, 23, 23, 22, 12, 22,
+        25, 18, 18, 20, 65, 24, 30, 22,
+    ]
 
     for indice, ancho in enumerate(anchos, start=1):
         letra = get_column_letter(indice)
@@ -82,7 +96,38 @@ def preparar_columnas(hoja):
     hoja.auto_filter.ref = hoja.dimensions
 
 
-def crear_hoja_licitaciones(libro, nombre, filas, detalles):
+def calcular_aviso_plazo(fila, reporte):
+    """Clasifica el plazo respecto de la evaluacion original."""
+    fecha_cierre = fila.get("fecha_cierre")
+    if not fecha_cierre:
+        return "Sin fecha"
+
+    try:
+        cierre = datetime.fromisoformat(
+            str(fecha_cierre).replace("Z", "+00:00")
+        )
+        evaluacion = datetime.fromisoformat(reporte["evaluado_en"])
+        minimo = datetime.fromisoformat(reporte["cierre_minimo"])
+
+        if cierre.tzinfo is None or evaluacion.tzinfo is None:
+            return "Sin fecha"
+
+        cierre = cierre.astimezone(evaluacion.tzinfo)
+        minimo = minimo.astimezone(evaluacion.tzinfo)
+
+        if cierre < evaluacion:
+            return "Cierre vencido"
+        if cierre.date() < minimo.date():
+            return "Plazo corto"
+        return "Plazo normal"
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return "Sin fecha"
+
+
+def crear_hoja_licitaciones(
+    libro, nombre, filas, detalles, reporte=None,
+    attachment_lookup=None,
+):
     """Crea una hoja de licitaciones con trazabilidad."""
 
     hoja = libro.create_sheet(nombre)
@@ -107,6 +152,37 @@ def crear_hoja_licitaciones(libro, nombre, filas, detalles):
             detalle.get("MontoEstimado")
         )
 
+        evaluacion_monto = fila.get("evaluacion_monto") or {}
+
+        moneda = (
+            evaluacion_monto.get("moneda")
+            or detalle.get("Moneda")
+            or ""
+        )
+
+        monto_clp = convertir_monto(
+            evaluacion_monto.get("monto_clp")
+        )
+
+        estados_monto = {
+            "cumple_minimo": "Cumple minimo",
+            "bajo_minimo": "Bajo minimo",
+            "sin_monto": "Sin monto informado",
+            "conversion_no_disponible": "Conversion no disponible",
+            "monto_invalido": "Monto invalido",
+        }
+
+        estado_monto = estados_monto.get(
+            evaluacion_monto.get("estado_monto"),
+            "No evaluado",
+        )
+
+        tasa_clp = convertir_monto(
+            evaluacion_monto.get("tasa_clp")
+        )
+
+        fecha_tasa = evaluacion_monto.get("fecha_tasa") or ""
+
         razones = fila.get("razones") or []
         observaciones = fila.get("observaciones") or []
 
@@ -126,10 +202,16 @@ def crear_hoja_licitaciones(libro, nombre, filas, detalles):
             publicacion,
             cierre,
             monto,
+            moneda,
+            monto_clp,
+            estado_monto,
+            tasa_clp,
+            fecha_tasa,
             fila["estado"],
             " | ".join(explicaciones),
             estado_l1,
-            "Pendiente de verificacion",
+            attachment_status_for_tender(codigo, attachment_lookup),
+            calcular_aviso_plazo(fila, reporte) if reporte else "",
         ])
 
         if numero_fila % 2 == 0:
@@ -144,22 +226,34 @@ def crear_hoja_licitaciones(libro, nombre, filas, detalles):
             if isinstance(celda.value, datetime):
                 celda.number_format = "DD-MM-YYYY HH:MM"
 
-        hoja.cell(numero_fila, 6).number_format = '#,##0.##'
+        for columna in (6, 8, 10):
+            hoja.cell(
+                numero_fila, columna
+            ).number_format = '#,##0.##'
 
-        estado = hoja.cell(numero_fila, 7)
+        estado = hoja.cell(numero_fila, 12)
         estado.fill = PatternFill(
             "solid",
             fgColor=COLORES[fila["estado"]],
         )
         estado.alignment = Alignment(horizontal="center")
 
-        motivo = hoja.cell(numero_fila, 8)
+        motivo = hoja.cell(numero_fila, 13)
         motivo.alignment = Alignment(
             vertical="top",
             wrap_text=True,
         )
 
-        pendiente = hoja.cell(numero_fila, 10)
+        aviso = hoja.cell(numero_fila, 16)
+        if aviso.value in ("Plazo corto", "Cierre vencido"):
+            aviso.fill = PatternFill(
+                "solid",
+                fgColor=COLORES["pendiente"]
+                if aviso.value == "Plazo corto"
+                else COLORES["excluida"],
+            )
+
+        pendiente = hoja.cell(numero_fila, 15)
         pendiente.fill = PatternFill(
             "solid",
             fgColor=COLORES["pendiente"],
@@ -199,6 +293,7 @@ def crear_resumen(libro, reporte):
         ("Cierre minimo", reporte["cierre_minimo"]),
         ("Total licitaciones", total),
         ("Incluidas", resumen["incluida"]),
+        ("Posible para Tienda", resumen.get("posible_tienda", 0)),
         ("Revision manual", resumen["revision_manual"]),
         ("Excluidas", resumen["excluida"]),
         (
@@ -209,6 +304,10 @@ def crear_resumen(libro, reporte):
             "Porcentaje excluidas",
             resumen["excluida"] / total if total else 0,
         ),
+        (
+            "Porcentaje posible para Tienda",
+            resumen.get("posible_tienda", 0) / total if total else 0,
+        ),
     ]
 
     for etiqueta, valor in datos:
@@ -217,7 +316,7 @@ def crear_resumen(libro, reporte):
     hoja.column_dimensions["A"].width = 36
     hoja.column_dimensions["B"].width = 44
 
-    for fila in (9, 10):
+    for fila in (10, 11, 12):
         hoja.cell(fila, 2).number_format = "0.0%"
 
     hoja.freeze_panes = "A2"
@@ -225,8 +324,12 @@ def crear_resumen(libro, reporte):
     return hoja
 
 
-def generar_excel_filtrado(fecha):
+def generar_excel_filtrado(fecha, *, attachment_report=None):
     """Genera y valida un Excel separado del original."""
+
+    attachment_lookup = build_attachment_status_lookup(
+        attachment_report
+    )
 
     carpeta = CARPETA_ORIGINALES / fecha
 
@@ -265,10 +368,11 @@ def generar_excel_filtrado(fecha):
 
     for estado in (
         "incluida",
+        "posible_tienda",
         "revision_manual",
         "excluida",
     ):
-        if conteos[estado] != reporte["resumen"][estado]:
+        if conteos[estado] != reporte["resumen"].get(estado, 0):
             raise ValueError(
                 f"Conteo inconsistente: {estado}"
             )
@@ -279,6 +383,7 @@ def generar_excel_filtrado(fecha):
 
     distribucion = [
         ("Incluidas", "incluida"),
+        ("Posible para Tienda", "posible_tienda"),
         ("Revision manual", "revision_manual"),
         ("Excluidas", "excluida"),
     ]
@@ -294,6 +399,8 @@ def generar_excel_filtrado(fecha):
             nombre,
             filas,
             detalles,
+            reporte,
+            attachment_lookup=attachment_lookup,
         )
 
     ruta_salida = (

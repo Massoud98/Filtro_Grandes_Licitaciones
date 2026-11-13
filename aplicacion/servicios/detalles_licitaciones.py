@@ -1,8 +1,11 @@
 """Obtencion de detalles de licitaciones con guardado y reanudacion."""
 
+import math
 import json
 import os
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -14,6 +17,50 @@ from aplicacion.servicios.mercado_publico import (
 )
 
 
+
+def _obtener_retry_after(respuesta):
+    """Interpret Retry-After as seconds or an HTTP date."""
+
+    if respuesta is None:
+        return None
+
+    headers = getattr(respuesta, "headers", None)
+
+    if headers is None:
+        return None
+
+    valor = headers.get("Retry-After")
+
+    if not valor:
+        return None
+
+    valor = str(valor).strip()
+
+    try:
+        segundos = float(valor)
+
+        if math.isfinite(segundos) and segundos >= 0:
+            return math.ceil(segundos)
+
+        return None
+
+    except ValueError:
+        pass
+
+    try:
+        fecha = parsedate_to_datetime(valor)
+
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=timezone.utc)
+
+        restante = (
+            fecha - datetime.now(timezone.utc)
+        ).total_seconds()
+
+        return max(0, math.ceil(restante))
+
+    except (TypeError, ValueError, OverflowError):
+        return None
 def obtener_detalles(fecha, limite=None, intervalo=2.0):
     """Obtiene detalles pendientes y permite reanudar el proceso."""
 
@@ -129,55 +176,134 @@ def obtener_detalles(fecha, limite=None, intervalo=2.0):
             flush=True,
         )
 
-        try:
-            respuesta = requests.get(
-                URL_API,
-                params={
-                    "codigo": codigo,
-                    "ticket": ticket,
-                },
-                timeout=60,
-            )
+        espera_reintento = 5
+        numero_intento = 0
 
-            respuesta.raise_for_status()
+        while True:
+            numero_intento += 1
+            intentos[codigo] = intentos.get(codigo, 0) + 1
+            espera_actual = espera_reintento
 
-            contenido = respuesta.json()
-
-            if not isinstance(contenido, dict):
-                raise ValueError("Respuesta JSON invalida.")
-
-            listado = contenido.get("Listado")
-
-            if not isinstance(listado, list) or not listado:
-                raise ValueError("Listado vacio o invalido.")
-
-            detalle = listado[0]
-
-            if not isinstance(detalle, dict):
-                raise ValueError("Detalle invalido.")
-
-            codigo_recibido = str(
-                detalle.get("CodigoExterno") or ""
-            ).strip()
-
-            if codigo_recibido != codigo:
-                raise ValueError(
-                    "El codigo recibido no coincide con el solicitado."
+            try:
+                respuesta = requests.get(
+                    URL_API,
+                    params={
+                        "codigo": codigo,
+                        "ticket": ticket,
+                    },
+                    timeout=60,
                 )
 
-        except (requests.RequestException, ValueError) as error:
-            errores[codigo] = str(error)
-            intentos[codigo] = intentos.get(codigo, 0) + 1
+                respuesta.raise_for_status()
 
+                contenido = respuesta.json()
+
+                if not isinstance(contenido, dict):
+                    raise ValueError("Respuesta JSON invalida.")
+
+                listado = contenido.get("Listado")
+
+                if not isinstance(listado, list) or not listado:
+                    raise ValueError("Listado vacio o invalido.")
+
+                detalle = listado[0]
+
+                if not isinstance(detalle, dict):
+                    raise ValueError("Detalle invalido.")
+
+                codigo_recibido = str(
+                    detalle.get("CodigoExterno") or ""
+                ).strip()
+
+                if codigo_recibido != codigo:
+                    raise ValueError(
+                        "El codigo recibido no coincide con el solicitado."
+                    )
+
+                break
+
+            except requests.HTTPError as error:
+                estado = (
+                    error.response.status_code
+                    if error.response is not None
+                    else None
+                )
+
+                temporal = (
+                    estado == 429
+                    or (estado is not None and estado >= 500)
+                )
+
+                if not temporal:
+                    errores[codigo] = (
+                        f"HTTPError: permanent HTTP failure "
+                        f"(status {estado})."
+                    )
+                    guardar_progreso()
+                    print("ERROR: HTTPError - permanent HTTP failure.")
+                    print("Proceso detenido. El progreso esta guardado.")
+                    return {
+                        "total": len(ids),
+                        "obtenidos": len(detalles),
+                        "pendientes": len(ids) - len(detalles),
+                        "errores": len(errores),
+                    }
+
+                tipo_error = "HTTPError"
+
+                if estado == 429:
+                    espera_servidor = _obtener_retry_after(
+                        error.response
+                    )
+
+                    if espera_servidor is not None:
+                        espera_actual = espera_servidor
+            except (requests.Timeout, requests.ConnectionError) as error:
+                tipo_error = type(error).__name__
+
+            except requests.RequestException as error:
+                errores[codigo] = (
+                    f"{type(error).__name__}: permanent request failure."
+                )
+                guardar_progreso()
+                print("ERROR:", type(error).__name__)
+                print("Proceso detenido. El progreso esta guardado.")
+                return {
+                    "total": len(ids),
+                    "obtenidos": len(detalles),
+                    "pendientes": len(ids) - len(detalles),
+                    "errores": len(errores),
+                }
+
+            except ValueError as error:
+                errores[codigo] = (
+                    f"{type(error).__name__}: invalid tender response."
+                )
+                guardar_progreso()
+                print("ERROR:", type(error).__name__)
+                print("Respuesta invalida. Progreso guardado.")
+                return {
+                    "total": len(ids),
+                    "obtenidos": len(detalles),
+                    "pendientes": len(ids) - len(detalles),
+                    "errores": len(errores),
+                }
+
+            errores[codigo] = (
+                f"{tipo_error}: temporary connection failure; "
+                "automatic retry pending."
+            )
             guardar_progreso()
 
-            print("ERROR:", error)
-            print("Proceso detenido sin reintentos automaticos.")
-            break
+            print(
+                f"Temporary failure ({tipo_error}). "
+                f"Retry #{numero_intento + 1} in {espera_actual}s."
+            )
 
+            time.sleep(espera_actual)
+            espera_reintento = min(espera_reintento * 2, 120)
         detalles[codigo] = detalle
         errores.pop(codigo, None)
-        intentos[codigo] = intentos.get(codigo, 0) + 1
 
         guardar_progreso()
 

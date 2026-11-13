@@ -236,3 +236,40 @@ __marimo__/
 # Archivos temporales
 *.log
 /respaldos/
+# Mercado Publico attachment integration - local artifacts
+
+# Downloaded procurement documents and extraction outputs
+**/descarga_temporal_*/
+**/indice_unificado_*/
+**/pruebas_adjuntos/
+**/integracion_adjuntos/datos/
+**/integracion_adjuntos/salidas/
+
+# Local browser sessions and OCR language resources
+**/chrome_playwright_*_profile/
+**/entorno_pruebas_adjuntos/
+**/ocr_tessdata/
+
+# Downloaded documents and temporary office files
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
+~$*.xlsx
+~$*.docx
+
+# Local secrets and credential exports
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Local executable and historical development backups
+/Iniciar_Filtro.exe
+*.bak
+*.pre*.py
+*.py.pre*.py
+/.gitignore.pre*.bak

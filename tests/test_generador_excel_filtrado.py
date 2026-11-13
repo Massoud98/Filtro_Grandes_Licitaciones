@@ -117,6 +117,8 @@ class PruebasExcelFiltrado(unittest.TestCase):
                 "resumen": {
                     "incluida":
                         self.estados.count("incluida"),
+                    "posible_tienda":
+                        self.estados.count("posible_tienda"),
                     "revision_manual":
                         self.estados.count("revision_manual"),
                     "excluida":
@@ -131,7 +133,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
         self.assertTrue(ruta.is_file())
         return ruta
 
-    def test_cuatro_hojas(self):
+    def test_cinco_hojas(self):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
@@ -139,6 +141,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
                 [
                     "Resumen",
                     "Incluidas",
+                    "Posible para Tienda",
                     "Revision manual",
                     "Excluidas",
                 ],
@@ -197,7 +200,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             hoja = libro["Revision manual"]
             self.assertEqual(hoja.max_row, 1)
-            self.assertEqual(hoja.max_column, 10)
+            self.assertEqual(hoja.max_column, 16)
 
     def test_excel_original_intacto(self):
         original = (
@@ -231,6 +234,197 @@ class PruebasExcelFiltrado(unittest.TestCase):
             f"Licitaciones_Filtradas_{FECHA}.xlsx"
         )
         self.assertFalse(salida.exists())
+
+
+    def test_datos_monetarios_en_excel(self):
+        codigo = self.ids[0]
+        self.detalles[codigo]["Moneda"] = "USD"
+
+        self.resultados[0]["evaluacion_monto"] = {
+            "monto_original": 150000,
+            "moneda": "USD",
+            "monto_clp": "145470000",
+            "tasa_clp": "969.8",
+            "fecha_tasa": "2026-11-10",
+            "estado_monto": "cumple_minimo",
+            "excluir": False,
+            "revision_manual": False,
+        }
+
+        self.guardar_datos()
+        ruta = self.generar()
+
+        with closing(load_workbook(ruta)) as libro:
+            hoja = libro["Incluidas"]
+            fila = 2
+
+            self.assertEqual(hoja.cell(fila, 6).value, 150000)
+            self.assertEqual(hoja.cell(fila, 7).value, "USD")
+            self.assertEqual(hoja.cell(fila, 8).value, 145470000)
+            self.assertEqual(
+                hoja.cell(fila, 9).value,
+                "Cumple minimo",
+            )
+            self.assertAlmostEqual(
+                hoja.cell(fila, 10).value,
+                969.8,
+            )
+            self.assertEqual(
+                hoja.cell(fila, 11).value,
+                "2026-11-10",
+            )
+
+    def test_compatibilidad_informes_antiguos(self):
+        ruta = self.generar()
+
+        with closing(load_workbook(ruta)) as libro:
+            hoja = libro["Incluidas"]
+
+            self.assertIsNone(hoja.cell(2, 7).value)
+            self.assertIsNone(hoja.cell(2, 8).value)
+            self.assertEqual(
+                hoja.cell(2, 9).value,
+                "No evaluado",
+            )
+            self.assertIsNone(hoja.cell(2, 10).value)
+            self.assertIsNone(hoja.cell(2, 11).value)
+
+    def test_conversion_no_disponible_en_excel(self):
+        codigo = self.ids[0]
+        self.detalles[codigo]["Moneda"] = "USD"
+
+        self.resultados[0]["evaluacion_monto"] = {
+            "monto_original": 150000,
+            "moneda": "USD",
+            "monto_clp": None,
+            "tasa_clp": None,
+            "fecha_tasa": None,
+            "estado_monto": "conversion_no_disponible",
+            "excluir": False,
+            "revision_manual": True,
+        }
+
+        self.guardar_datos()
+        ruta = self.generar()
+
+        with closing(load_workbook(ruta)) as libro:
+            hoja = libro["Incluidas"]
+
+            self.assertEqual(hoja.cell(2, 7).value, "USD")
+            self.assertIsNone(hoja.cell(2, 8).value)
+            self.assertEqual(
+                hoja.cell(2, 9).value,
+                "Conversion no disponible",
+            )
+            self.assertIsNone(hoja.cell(2, 10).value)
+            self.assertIsNone(hoja.cell(2, 11).value)
+
+
+class PruebasExcelTienda(unittest.TestCase):
+    """Verifica la nueva hoja Tienda y los avisos de plazo."""
+
+    setUp = PruebasExcelFiltrado.setUp
+    guardar_datos = PruebasExcelFiltrado.guardar_datos
+    generar = PruebasExcelFiltrado.generar
+
+    def preparar_tienda(self, cierre="2026-11-25T15:00:00-03:00"):
+        self.estados[0] = "posible_tienda"
+        self.resultados[0]["estado"] = "posible_tienda"
+        self.resultados[0]["fecha_cierre"] = cierre
+        self.resultados[0]["clasificacion_l1"] = {
+            "clasificacion": "incluir",
+            "categorias_detectadas": ["alimentos"],
+        }
+        self.resultados[0]["evaluacion_monto"] = {
+            "estado_monto": "bajo_minimo",
+            "monto_clp": 150000,
+            "moneda": "CLP",
+        }
+        self.guardar_datos()
+
+    def test_tienda_en_hoja_separada_con_enlace(self):
+        self.preparar_tienda()
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            tienda = libro["Posible para Tienda"]
+            self.assertEqual(tienda.max_row, 2)
+            self.assertEqual(tienda["A2"].value, "TEST-1")
+            self.assertEqual(tienda["L2"].value, "posible_tienda")
+            self.assertIn(
+                "idlicitacion=TEST-1",
+                tienda["A2"].hyperlink.target,
+            )
+            self.assertEqual(libro["Incluidas"].max_row - 1, 1)
+
+    def test_resumen_tienda_y_porcentaje(self):
+        self.preparar_tienda()
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            resumen = {
+                fila[0].value: fila[1].value
+                for fila in libro["Resumen"].iter_rows()
+            }
+            self.assertEqual(resumen["Total licitaciones"], 4)
+            self.assertEqual(resumen["Incluidas"], 1)
+            self.assertEqual(resumen["Posible para Tienda"], 1)
+            self.assertEqual(
+                resumen["Porcentaje posible para Tienda"],
+                0.25,
+            )
+
+    def test_plazo_normal(self):
+        self.preparar_tienda("2026-11-25T15:00:00-03:00")
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Plazo normal",
+            )
+
+    def test_limite_exactamente_siete_dias(self):
+        self.preparar_tienda("2026-11-17T19:54:54-03:00")
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Plazo normal",
+            )
+
+    def test_inicio_del_dia_limite(self):
+        self.preparar_tienda("2026-11-17T00:00:00-03:00")
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Plazo normal",
+            )
+
+    def test_plazo_corto(self):
+        self.preparar_tienda("2026-11-13T15:00:00-03:00")
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Plazo corto",
+            )
+
+    def test_cierre_vencido(self):
+        self.preparar_tienda("2026-11-09T15:00:00-03:00")
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Cierre vencido",
+            )
+
+    def test_sin_fecha(self):
+        self.preparar_tienda(None)
+        ruta = self.generar()
+        with closing(load_workbook(ruta)) as libro:
+            self.assertEqual(
+                libro["Posible para Tienda"]["P2"].value,
+                "Sin fecha",
+            )
 
 
 if __name__ == "__main__":

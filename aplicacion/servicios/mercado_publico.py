@@ -16,7 +16,12 @@ URL_API = (
 
 ZONA_HORARIA = ZoneInfo("America/Santiago")
 
-RAIZ_PROYECTO = Path(__file__).resolve().parents[2]
+RAIZ_PROYECTO = Path(
+    os.environ.get(
+        "FILTRO_LICITACIONES_ROOT",
+        Path(__file__).resolve().parents[2],
+    )
+).resolve()
 CARPETA_ORIGINALES = RAIZ_PROYECTO / "datos" / "originales"
 
 

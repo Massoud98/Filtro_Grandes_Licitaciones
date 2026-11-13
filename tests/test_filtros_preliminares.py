@@ -56,6 +56,38 @@ class PruebasClasificacionL1(unittest.TestCase):
             resultado["clasificacion"], "incluir"
         )
 
+    def test_ropa_protectora_se_mantiene_incluida(self):
+        resultado = self.clasificar([
+            crear_item(
+                "46181500",
+                "Ropa reflectante o accesorios",
+                "POLERA NEGRA DE ALGODON CON ESTAMPADO"
+            )
+        ])
+        self.assertEqual(
+            resultado["clasificacion"], "incluir"
+        )
+
+    def test_panales_categoria_ropa(self):
+        resultado = self.clasificar([
+            crear_item("53102300", "Pa?ales para beb?")
+        ])
+        self.assertEqual(
+            resultado["clasificacion"], "incluir"
+        )
+
+    def test_ropa_protectora(self):
+        resultado = self.clasificar([
+            crear_item(
+                "46181500",
+                "Ropa reflectante o accesorios",
+                "POLERA NEGRA DE ALGODON CON ESTAMPADO"
+            )
+        ])
+        self.assertEqual(
+            resultado["clasificacion"], "incluir"
+        )
+
     def test_notebooks(self):
         resultado = self.clasificar([
             crear_item("43211500", "Notebook")
@@ -75,7 +107,7 @@ class PruebasClasificacionL1(unittest.TestCase):
     def test_sin_items(self):
         resultado = self.clasificar([])
         self.assertEqual(
-            resultado["clasificacion"], "revision_manual"
+            resultado["clasificacion"], "excluir"
         )
 
     def test_productos_mixtos(self):
@@ -84,7 +116,7 @@ class PruebasClasificacionL1(unittest.TestCase):
             crear_item("43211500", "Notebook"),
         ])
         self.assertEqual(
-            resultado["clasificacion"], "revision_manual"
+            resultado["clasificacion"], "incluir"
         )
 
     def test_vestimenta_como_servicio(self):
@@ -92,7 +124,7 @@ class PruebasClasificacionL1(unittest.TestCase):
             crear_item("91111700", "Confeccion de vestuario")
         ])
         self.assertEqual(
-            resultado["clasificacion"], "revision_manual"
+            resultado["clasificacion"], "incluir"
         )
 
 
