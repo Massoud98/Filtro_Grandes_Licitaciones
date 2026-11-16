@@ -22,7 +22,7 @@ RAIZ_PROYECTO = Path(
         Path(__file__).resolve().parents[2],
     )
 ).resolve()
-CARPETA_ORIGINALES = RAIZ_PROYECTO / "datos" / "originales"
+CARPETA_ORIGINALES = RAIZ_PROYECTO / "datos" / "json" / "diarios"
 
 
 def obtener_fecha_ayer():

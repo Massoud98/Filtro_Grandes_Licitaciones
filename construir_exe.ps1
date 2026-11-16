@@ -115,7 +115,7 @@ active = sorted(
     if re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", path.name)
 )
 
-if len(active) != 20:
+if len(active) != 26:
     raise SystemExit("STOP: Unexpected active test module count.")
 
 loader = unittest.TestLoader()
@@ -124,7 +124,7 @@ suite = unittest.TestSuite(
     for path in active
 )
 
-if suite.countTestCases() != 203:
+if suite.countTestCases() != 248:
     raise SystemExit("STOP: Unexpected active test count.")
 
 result = unittest.TextTestRunner(verbosity=1).run(suite)
@@ -132,7 +132,7 @@ result = unittest.TextTestRunner(verbosity=1).run(suite)
 if not result.wasSuccessful() or result.skipped:
     raise SystemExit("STOP: Active regression failed.")
 
-print("All 203 active tests passed.")
+print("All 248 active tests passed.")
 '@
 $TestRunner | & $Python -B -c "import sys; exec(sys.stdin.read())"
 

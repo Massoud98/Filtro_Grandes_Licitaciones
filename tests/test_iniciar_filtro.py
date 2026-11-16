@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import iniciar_filtro
 
 
@@ -83,6 +83,57 @@ class LauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "absent.xlsx"
             self.assertIsNone(iniciar_filtro.backup_existing(path))
+
+
+
+    def test_custom_runtime_root_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                iniciar_filtro.os.environ,
+                {"FILTRO_LICITACIONES_ROOT": tmp},
+            ):
+                self.assertEqual(
+                    iniciar_filtro.project_root(),
+                    Path(tmp).resolve(),
+                )
+
+    def test_frozen_default_production_root_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                iniciar_filtro.os.environ,
+                {"FILTRO_LICITACIONES_ROOT": ""},
+            ):
+                with patch.object(
+                    iniciar_filtro.sys,
+                    "frozen",
+                    True,
+                    create=True,
+                ):
+                    with patch(
+                        "pathlib.Path.home",
+                        return_value=Path(tmp),
+                    ):
+                        self.assertEqual(
+                            iniciar_filtro.project_root(),
+                            Path(tmp) / "Documents"
+                            / "Filtro_Grandes_Licitaciones",
+                        )
+
+    def test_development_root_preserved(self):
+        with patch.dict(
+            iniciar_filtro.os.environ,
+            {"FILTRO_LICITACIONES_ROOT": ""},
+        ):
+            with patch.object(
+                iniciar_filtro.sys,
+                "frozen",
+                False,
+                create=True,
+            ):
+                self.assertEqual(
+                    iniciar_filtro.project_root(),
+                    Path(iniciar_filtro.__file__).resolve().parent,
+                )
 
 
 if __name__ == "__main__":

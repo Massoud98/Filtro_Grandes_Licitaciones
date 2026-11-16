@@ -16,6 +16,7 @@ ENCABEZADOS = [
     "Nombre",
     "Fecha Publicacion",
     "Fecha Cierre",
+    "Organismo",
     "Monto Estimado",
     "Archivos Descargables",
 ]
@@ -58,10 +59,10 @@ def convertir_monto(valor):
         return str(valor)
 
 
-def generar_excel_original(fecha):
+def generar_excel_original(fecha, *, carpeta_salida=None, fecha_reporte=None, carpeta_datos=None):
     """Genera y valida el Excel original sin aplicar filtros."""
 
-    carpeta = CARPETA_ORIGINALES / fecha
+    carpeta = Path(carpeta_datos) if carpeta_datos is not None else CARPETA_ORIGINALES / fecha
     ruta_lista = carpeta / "licitaciones_publicadas.json"
     ruta_detalles = carpeta / "detalles_licitaciones.json"
 
@@ -126,6 +127,7 @@ def generar_excel_original(fecha):
             detalle.get("Nombre") or "",
             publicacion,
             cierre,
+            (detalle.get("Comprador") or {}).get("NombreOrganismo") or "",
             monto,
             "Pendiente de verificacion",
         ])
@@ -149,8 +151,9 @@ def generar_excel_original(fecha):
         "B": 75,
         "C": 23,
         "D": 23,
-        "E": 22,
-        "F": 30,
+        "E": 75,
+        "F": 22,
+        "G": 30,
     }
 
     for columna, ancho in anchos.items():
@@ -170,9 +173,9 @@ def generar_excel_original(fecha):
             if isinstance(celda.value, datetime):
                 celda.number_format = "DD-MM-YYYY HH:MM"
 
-        hoja.cell(numero_fila, 5).number_format = '#,##0.##'
+        hoja.cell(numero_fila, 6).number_format = '#,##0.##'
 
-        pendiente = hoja.cell(numero_fila, 6)
+        pendiente = hoja.cell(numero_fila, 7)
         pendiente.fill = PatternFill(
             "solid",
             fgColor=color_pendiente,
@@ -194,8 +197,9 @@ def generar_excel_original(fecha):
     hoja.auto_filter.ref = hoja.dimensions
 
     ruta_salida = (
-        carpeta / f"Licitaciones_Mercado_Publico_{fecha}.xlsx"
+        (Path(carpeta_salida) if carpeta_salida is not None else CARPETA_ORIGINALES.parent.parent / "originales") / f"Licitaciones_Mercado_Publico_{fecha_reporte or fecha}.xlsx"
     )
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
     ruta_temporal = ruta_salida.with_suffix(".tmp.xlsx")
 
     try:

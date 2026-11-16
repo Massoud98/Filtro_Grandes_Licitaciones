@@ -29,6 +29,7 @@ ENCABEZADOS = [
     "Nombre",
     "Fecha publicacion",
     "Fecha cierre",
+    "Organismo",
     "Monto estimado",
     "Moneda",
     "Monto CLP",
@@ -84,7 +85,7 @@ def preparar_columnas(hoja):
     """Configura anchos, filtros y paneles inmovilizados."""
 
     anchos = [
-        22, 12, 75, 23, 23, 22, 12, 22,
+        22, 12, 75, 23, 23, 75, 22, 12, 22,
         25, 18, 18, 20, 65, 24, 30, 22,
     ]
 
@@ -201,6 +202,7 @@ def crear_hoja_licitaciones(
             fila.get("nombre", ""),
             publicacion,
             cierre,
+            (detalle.get("Comprador") or {}).get("NombreOrganismo") or "",
             monto,
             moneda,
             monto_clp,
@@ -226,25 +228,25 @@ def crear_hoja_licitaciones(
             if isinstance(celda.value, datetime):
                 celda.number_format = "DD-MM-YYYY HH:MM"
 
-        for columna in (6, 8, 10):
+        for columna in (7, 9, 11):
             hoja.cell(
                 numero_fila, columna
             ).number_format = '#,##0.##'
 
-        estado = hoja.cell(numero_fila, 12)
+        estado = hoja.cell(numero_fila, 13)
         estado.fill = PatternFill(
             "solid",
             fgColor=COLORES[fila["estado"]],
         )
         estado.alignment = Alignment(horizontal="center")
 
-        motivo = hoja.cell(numero_fila, 13)
+        motivo = hoja.cell(numero_fila, 14)
         motivo.alignment = Alignment(
             vertical="top",
             wrap_text=True,
         )
 
-        aviso = hoja.cell(numero_fila, 16)
+        aviso = hoja.cell(numero_fila, 17)
         if aviso.value in ("Plazo corto", "Cierre vencido"):
             aviso.fill = PatternFill(
                 "solid",
@@ -253,7 +255,7 @@ def crear_hoja_licitaciones(
                 else COLORES["excluida"],
             )
 
-        pendiente = hoja.cell(numero_fila, 15)
+        pendiente = hoja.cell(numero_fila, 16)
         pendiente.fill = PatternFill(
             "solid",
             fgColor=COLORES["pendiente"],
@@ -324,14 +326,14 @@ def crear_resumen(libro, reporte):
     return hoja
 
 
-def generar_excel_filtrado(fecha, *, attachment_report=None):
+def generar_excel_filtrado(fecha, *, attachment_report=None, carpeta_salida=None, fecha_reporte=None, carpeta_datos=None):
     """Genera y valida un Excel separado del original."""
 
     attachment_lookup = build_attachment_status_lookup(
         attachment_report
     )
 
-    carpeta = CARPETA_ORIGINALES / fecha
+    carpeta = Path(carpeta_datos) if carpeta_datos is not None else CARPETA_ORIGINALES / fecha
 
     ruta_filtros = carpeta / "filtros_preliminares.json"
     ruta_detalles = carpeta / "detalles_licitaciones.json"
@@ -404,9 +406,10 @@ def generar_excel_filtrado(fecha, *, attachment_report=None):
         )
 
     ruta_salida = (
-        carpeta / f"Licitaciones_Filtradas_{fecha}.xlsx"
+        (Path(carpeta_salida) if carpeta_salida is not None else CARPETA_ORIGINALES.parent.parent / "filtrados") / f"Licitaciones_Filtradas_{fecha_reporte or fecha}.xlsx"
     )
 
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
     ruta_temporal = ruta_salida.with_suffix(".tmp.xlsx")
 
     try:

@@ -13,12 +13,20 @@ DETAIL_INTERVAL_SECONDS = 2.0
 
 
 def project_root() -> Path:
+    configured_root = os.environ.get(
+        "FILTRO_LICITACIONES_ROOT"
+    )
+
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
+
     if getattr(sys, "frozen", False):
         return (
             Path.home()
             / "Documents"
             / "Filtro_Grandes_Licitaciones"
         )
+
     return Path(__file__).resolve().parent
 
 
@@ -46,6 +54,8 @@ def initialize_data_directory() -> None:
         ROOT / "datos" / "adjuntos",
         ROOT / "datos" / "filtrados",
         ROOT / "datos" / "originales",
+        ROOT / "datos" / "json" / "diarios",
+        ROOT / "datos" / "json" / "consolidados",
         ROOT / "datos" / "reportes",
         ROOT / "datos" / "simulaciones",
         ROOT / "datos" / "tipos_cambio",
@@ -170,7 +180,7 @@ def load_optional_attachment_report():
     return report, report_date
 
 
-def run_pipeline():
+def run_pipeline(fecha=None, *, generar_reportes=True):
     # Imports occur after setting FILTRO_LICITACIONES_ROOT.
     from aplicacion.servicios.mercado_publico import CARPETA_ORIGINALES, consultar_licitaciones, obtener_fecha_ayer
     from aplicacion.servicios.detalles_licitaciones import obtener_detalles
@@ -190,7 +200,8 @@ def run_pipeline():
         os.environ.pop("BCCH_API_TOKEN", None)
         print("WARNING: Banco Central token absent; foreign-currency conversion may be unavailable.")
 
-    fecha = obtener_fecha_ayer()
+    if fecha is None:
+        fecha = obtener_fecha_ayer()
     fecha_iso = fecha.isoformat()
     if attachment_selection is not None:
         attachment_report_date = attachment_selection[1]
@@ -258,7 +269,18 @@ def run_pipeline():
         print("Recorded errors:", len(errors) if isinstance(errors, dict) else 0)
         return {"status": "DETAILS_INCOMPLETE", "published": len(ids), "details": len(details)}
 
-    original = folder / f"Licitaciones_Mercado_Publico_{fecha_iso}.xlsx"
+    if not generar_reportes:
+        print("Details complete. Daily Excel generation deferred.")
+        return {
+            "status": "SUCCESS",
+            "date": fecha_iso,
+            "published": len(ids),
+            "details": len(details),
+            "detail_result": detail_result,
+        }
+
+    report_folder = CARPETA_ORIGINALES.parent.parent
+    original = report_folder / "originales" / f"Licitaciones_Mercado_Publico_{fecha_iso}.xlsx"
     backup_existing(original)
     print("\n=== ORIGINAL EXCEL ===")
     original_result = generar_excel_original(fecha_iso)
@@ -268,7 +290,7 @@ def run_pipeline():
     print("\n=== APPLYING FILTERS ===")
     filter_result = aplicar_filtros(fecha_iso)
 
-    filtered = folder / f"Licitaciones_Filtradas_{fecha_iso}.xlsx"
+    filtered = report_folder / "filtrados" / f"Licitaciones_Filtradas_{fecha_iso}.xlsx"
     backup_existing(filtered)
     print("\n=== FILTERED EXCEL ===")
     if attachment_selection is None:
@@ -294,10 +316,184 @@ def run_pipeline():
     return result
 
 
+def run_scheduled_pipeline():
+    """Generate one execution-date report from scheduled publication dates."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from aplicacion.servicios.fechas_ejecucion import (
+        fechas_publicacion_para_ejecucion,
+    )
+    from aplicacion.servicios.mercado_publico import CARPETA_ORIGINALES
+    from aplicacion.servicios.consolidacion_licitaciones import (
+        consolidar_publicaciones,
+    )
+    from aplicacion.servicios.generador_excel import generar_excel_original
+    from aplicacion.servicios.generador_excel_filtrado import generar_excel_filtrado
+    from aplicacion.servicios.filtros_preliminares import aplicar_filtros
+
+    hoy = datetime.now(ZoneInfo("America/Santiago")).date()
+
+    if hoy.weekday() >= 5:
+        print("Weekend: no scheduled processing.")
+        return {"status": "NO_RUN", "results": []}
+
+    fechas = fechas_publicacion_para_ejecucion(hoy=hoy)
+
+    if (
+        os.environ.get("FILTRO_ATTACHMENT_REPORT_PATH") is not None
+        or os.environ.get("FILTRO_ATTACHMENT_REPORT_DATE") is not None
+    ):
+        raise ValueError(
+            "Scheduled consolidated reports do not support "
+            "a single-date attachment report."
+        )
+
+    results = []
+
+    for fecha in fechas:
+        print("\n=== SCHEDULED PUBLICATION DATE ===")
+        print("Date:", fecha.isoformat())
+
+        result = run_pipeline(
+            fecha=fecha,
+            generar_reportes=False,
+        )
+        results.append(result)
+
+        if result.get("status") == "DETAILS_INCOMPLETE":
+            return {
+                "status": "DETAILS_INCOMPLETE",
+                "results": results,
+            }
+
+        if result.get("status") not in ("SUCCESS", "NO_TENDERS"):
+            raise RuntimeError("Unexpected publication processing status.")
+
+    base = CARPETA_ORIGINALES.parent.parent.parent
+    fecha_reporte = hoy.isoformat()
+
+    carpeta_proceso = (
+        base / "datos" / "json" / "consolidados" / fecha_reporte
+    )
+    carpeta_salida_original = (
+        base / "datos" / "originales"
+    )
+
+    consolidation = consolidar_publicaciones(
+        CARPETA_ORIGINALES,
+        fechas,
+        carpeta_proceso,
+        fecha_reporte,
+    )
+
+    if consolidation["status"] == "NO_TENDERS":
+        print("No tenders across selected dates.")
+        return {
+            "status": "NO_TENDERS",
+            "results": results,
+        }
+
+    original = generar_excel_original(
+        fecha_reporte,
+        carpeta_datos=carpeta_proceso,
+        carpeta_salida=carpeta_salida_original,
+        fecha_reporte=fecha_reporte,
+    )
+
+    filtered_data = aplicar_filtros(
+        fecha_reporte,
+        carpeta_datos=carpeta_proceso,
+    )
+
+    filtered = generar_excel_filtrado(
+        fecha_reporte,
+        carpeta_datos=carpeta_proceso,
+        carpeta_salida=base / "datos" / "filtrados",
+        fecha_reporte=fecha_reporte,
+    )
+
+    print("\n=== CONSOLIDATED RUN COMPLETE ===")
+    print("Execution date:", fecha_reporte)
+    print("Published:", consolidation["published"])
+    print("Original Excel:", original)
+    print("Filtered Excel:", filtered)
+
+    return {
+        "status": "SUCCESS",
+        "date": fecha_reporte,
+        "published": consolidation["published"],
+        "original_excel": str(original),
+        "filtered_excel": str(filtered),
+        "filter_summary": filtered_data.get("resumen", {}),
+        "results": results,
+    }
+
+def run_runtime_self_test() -> int:
+    """Verify local application initialization without network access."""
+
+    print("\n=== RUNTIME SELF-TEST ===")
+
+    print("Runtime root:", ROOT)
+    print("Resource root:", RESOURCE_ROOT)
+
+    required_directories = [
+        ROOT / "configuracion",
+        ROOT / "datos" / "adjuntos",
+        ROOT / "datos" / "filtrados",
+        ROOT / "datos" / "originales",
+        ROOT / "datos" / "json" / "diarios",
+        ROOT / "datos" / "json" / "consolidados",
+        ROOT / "datos" / "reportes",
+        ROOT / "datos" / "simulaciones",
+        ROOT / "datos" / "tipos_cambio",
+        ROOT / "respaldos" / "ejecuciones",
+    ]
+
+    for directory in required_directories:
+        if not directory.is_dir():
+            raise RuntimeError(
+                "Required runtime directory missing."
+            )
+        print("DIRECTORY OK:", directory.relative_to(ROOT))
+
+    config = ROOT / "configuracion" / "filtros.json"
+
+    if not config.is_file():
+        raise RuntimeError("Runtime configuration missing.")
+
+    with config.open("r", encoding="utf-8") as stream:
+        configuration = json.load(stream)
+
+    if not isinstance(configuration, dict):
+        raise RuntimeError("Invalid configuration structure.")
+
+    print("Configuration: VALID JSON")
+    print("Configuration size:", config.stat().st_size)
+    print("Current working directory:", Path.cwd())
+
+    if Path.cwd().resolve() != ROOT.resolve():
+        raise RuntimeError("Unexpected working directory.")
+
+    print("\nSELF-TEST RESULT: SUCCESS")
+    print("Network requests: NONE")
+    print("Scraper execution: NONE")
+
+    return 0
+
+
 def main() -> int:
+    if "--self-test" in sys.argv[1:]:
+        try:
+            return run_runtime_self_test()
+        except Exception as exc:
+            print("SELF-TEST FAILED")
+            print("Error type:", type(exc).__name__)
+            return 1
+
     print("FILTRO DE GRANDES LICITACIONES\n")
     try:
-        result = run_pipeline()
+        result = run_scheduled_pipeline()
     except KeyboardInterrupt:
         print("\nInterrupted. Saved progress can be resumed.")
         return 130

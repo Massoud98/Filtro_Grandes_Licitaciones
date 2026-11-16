@@ -200,7 +200,7 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             hoja = libro["Revision manual"]
             self.assertEqual(hoja.max_row, 1)
-            self.assertEqual(hoja.max_column, 16)
+            self.assertEqual(hoja.max_column, 17)
 
     def test_excel_original_intacto(self):
         original = (
@@ -258,19 +258,19 @@ class PruebasExcelFiltrado(unittest.TestCase):
             hoja = libro["Incluidas"]
             fila = 2
 
-            self.assertEqual(hoja.cell(fila, 6).value, 150000)
-            self.assertEqual(hoja.cell(fila, 7).value, "USD")
-            self.assertEqual(hoja.cell(fila, 8).value, 145470000)
+            self.assertEqual(hoja.cell(fila, 7).value, 150000)
+            self.assertEqual(hoja.cell(fila, 8).value, "USD")
+            self.assertEqual(hoja.cell(fila, 9).value, 145470000)
             self.assertEqual(
-                hoja.cell(fila, 9).value,
+                hoja.cell(fila, 10).value,
                 "Cumple minimo",
             )
             self.assertAlmostEqual(
-                hoja.cell(fila, 10).value,
+                hoja.cell(fila, 11).value,
                 969.8,
             )
             self.assertEqual(
-                hoja.cell(fila, 11).value,
+                hoja.cell(fila, 12).value,
                 "2026-11-10",
             )
 
@@ -280,14 +280,14 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             hoja = libro["Incluidas"]
 
-            self.assertIsNone(hoja.cell(2, 7).value)
             self.assertIsNone(hoja.cell(2, 8).value)
+            self.assertIsNone(hoja.cell(2, 9).value)
             self.assertEqual(
-                hoja.cell(2, 9).value,
+                hoja.cell(2, 10).value,
                 "No evaluado",
             )
-            self.assertIsNone(hoja.cell(2, 10).value)
             self.assertIsNone(hoja.cell(2, 11).value)
+            self.assertIsNone(hoja.cell(2, 12).value)
 
     def test_conversion_no_disponible_en_excel(self):
         codigo = self.ids[0]
@@ -310,14 +310,14 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             hoja = libro["Incluidas"]
 
-            self.assertEqual(hoja.cell(2, 7).value, "USD")
-            self.assertIsNone(hoja.cell(2, 8).value)
+            self.assertEqual(hoja.cell(2, 8).value, "USD")
+            self.assertIsNone(hoja.cell(2, 9).value)
             self.assertEqual(
-                hoja.cell(2, 9).value,
+                hoja.cell(2, 10).value,
                 "Conversion no disponible",
             )
-            self.assertIsNone(hoja.cell(2, 10).value)
             self.assertIsNone(hoja.cell(2, 11).value)
+            self.assertIsNone(hoja.cell(2, 12).value)
 
 
 class PruebasExcelTienda(unittest.TestCase):
@@ -349,7 +349,7 @@ class PruebasExcelTienda(unittest.TestCase):
             tienda = libro["Posible para Tienda"]
             self.assertEqual(tienda.max_row, 2)
             self.assertEqual(tienda["A2"].value, "TEST-1")
-            self.assertEqual(tienda["L2"].value, "posible_tienda")
+            self.assertEqual(tienda["M2"].value, "posible_tienda")
             self.assertIn(
                 "idlicitacion=TEST-1",
                 tienda["A2"].hyperlink.target,
@@ -377,7 +377,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Plazo normal",
             )
 
@@ -386,7 +386,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Plazo normal",
             )
 
@@ -395,7 +395,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Plazo normal",
             )
 
@@ -404,7 +404,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Plazo corto",
             )
 
@@ -413,7 +413,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Cierre vencido",
             )
 
@@ -422,7 +422,7 @@ class PruebasExcelTienda(unittest.TestCase):
         ruta = self.generar()
         with closing(load_workbook(ruta)) as libro:
             self.assertEqual(
-                libro["Posible para Tienda"]["P2"].value,
+                libro["Posible para Tienda"]["Q2"].value,
                 "Sin fecha",
             )
 

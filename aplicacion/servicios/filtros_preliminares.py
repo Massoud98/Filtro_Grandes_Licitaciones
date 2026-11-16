@@ -203,7 +203,7 @@ def interpretar_fecha(valor):
     return fecha.astimezone(ZONA)
 
 
-def aplicar_filtros(fecha, evaluacion=None):
+def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
     """Evalua sin modificar los datos originales."""
 
     if evaluacion is None:
@@ -213,7 +213,7 @@ def aplicar_filtros(fecha, evaluacion=None):
     else:
         evaluacion = evaluacion.astimezone(ZONA)
 
-    carpeta = CARPETA_ORIGINALES / fecha
+    carpeta = Path(carpeta_datos) if carpeta_datos is not None else CARPETA_ORIGINALES / fecha
     ruta = carpeta / "detalles_licitaciones.json"
     datos = json.loads(ruta.read_text(encoding="utf-8"))
 
