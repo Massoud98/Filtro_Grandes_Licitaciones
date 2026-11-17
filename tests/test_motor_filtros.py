@@ -35,7 +35,7 @@ def crear_detalle(tipo, cierre, items=None):
             "FechaCierre": cierre.isoformat(),
         },
         "Items": {
-            "Listado": items or [],
+            "Listado": items if items is not None else [crear_item("53103000", "Poleras")],
         },
     }
 
@@ -141,7 +141,7 @@ class PruebasMotorFiltros(unittest.TestCase):
         )
         self.assertEqual(
             fila["estado"],
-            "incluida",
+            "excluida",
         )
 
     def test_exclusion_prioritaria(self):
@@ -153,8 +153,8 @@ class PruebasMotorFiltros(unittest.TestCase):
                 "Confeccion de vestuario",
             )],
         )
-        self.assertEqual(fila["estado"], "incluida")
-        self.assertFalse(fila["razones"])
+        self.assertEqual(fila["estado"], "excluida")
+        self.assertTrue(fila["razones"])
         self.assertTrue(fila["observaciones"])
         self.assertTrue(
             any(

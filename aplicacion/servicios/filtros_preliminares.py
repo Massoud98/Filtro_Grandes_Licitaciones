@@ -8,6 +8,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aplicacion.servicios.configuracion_filtros import cargar_configuracion
+from aplicacion.servicios.configuracion_categorias import load_editable_categories
+from aplicacion.servicios.evaluador_categorias import evaluate_category_filter
 from aplicacion.servicios.evaluacion_montos import evaluar_monto
 from aplicacion.servicios.banco_central import ErrorBancoCentral
 from aplicacion.servicios.snapshots_monedas import (
@@ -228,6 +230,7 @@ def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
 
     configuracion = cargar_configuracion()
     monto_minimo = configuracion["monto_minimo_clp"]
+    datos_categorias = load_editable_categories()
 
     resultados = []
     minimo_cierre = evaluacion + timedelta(
@@ -253,6 +256,10 @@ def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
 
     for codigo in ids:
         detalle = detalles[codigo]
+        evaluacion_categorias = evaluate_category_filter(
+            detalle, datos_categorias
+        )
+        categoria_decision = evaluacion_categorias["decision"]
         tipo = str(detalle.get("Tipo") or "").strip().upper()
         fechas = detalle.get("Fechas") or {}
 
@@ -264,9 +271,14 @@ def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
         observaciones = []
         clasificacion = None
 
-        # 1. O1: exclusion takes priority.
+        # 1. O1 and total category exclusions take priority.
         if tipo == "O1":
             razones.append("Tipo O1 excluido.")
+        if categoria_decision == "EXCLUDED_SERVICES":
+            razones.append(
+                "Excluida: al menos un item pertenece a una "
+                "categoria de exclusion total o prefijo excluido."
+            )
 
         # 2. Classify categories for all types.
         # The L1 category restriction remains unchanged.
@@ -333,10 +345,16 @@ def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
                     "Banco Central unavailable: " + error_conversion
                 )
 
-        # Ambiguous or unavailable information never creates
-        # a manual-review classification at this stage.
+        if evaluacion_categorias["requires_manual_review"]:
+            observaciones.append(
+                "Categoria requiere revision manual: "
+                + str(categoria_decision)
+            )
+
         estado = (
             "excluida" if razones
+            else "revision_manual"
+            if evaluacion_categorias["requires_manual_review"]
             else "posible_tienda" if elegible_tienda
             else "incluida"
         )
@@ -351,6 +369,8 @@ def aplicar_filtros(fecha, evaluacion=None, *, carpeta_datos=None):
             "observaciones": observaciones,
             "clasificacion_l1": clasificacion,
             "evaluacion_monto": evaluacion_monto,
+            "categoria_decision": categoria_decision,
+            "evaluacion_categorias": evaluacion_categorias,
         })
 
     resumen = {

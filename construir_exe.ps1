@@ -115,7 +115,7 @@ active = sorted(
     if re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", path.name)
 )
 
-if len(active) != 26:
+if len(active) != 29:
     raise SystemExit("STOP: Unexpected active test module count.")
 
 loader = unittest.TestLoader()
@@ -124,7 +124,7 @@ suite = unittest.TestSuite(
     for path in active
 )
 
-if suite.countTestCases() != 248:
+if suite.countTestCases() != 272:
     raise SystemExit("STOP: Unexpected active test count.")
 
 result = unittest.TextTestRunner(verbosity=1).run(suite)
@@ -132,7 +132,7 @@ result = unittest.TextTestRunner(verbosity=1).run(suite)
 if not result.wasSuccessful() or result.skipped:
     raise SystemExit("STOP: Active regression failed.")
 
-print("All 248 active tests passed.")
+print("All 272 active tests passed.")
 '@
 $TestRunner | & $Python -B -c "import sys; exec(sys.stdin.read())"
 
@@ -157,6 +157,20 @@ if ($Clean) {
 # ------------------------------------------
 
 Write-Host "`n=== BUILDING EXECUTABLE ==="
+
+$CategoryDirectory = Join-Path $Root "Filtro"
+$RequiredCategoryFiles = @(
+    "catalogo_oficial_completo.json",
+    "categorias_exclusion_total.txt",
+    "categorias_exclusion_pasiva.txt"
+)
+
+foreach ($Name in $RequiredCategoryFiles) {
+    $File = Join-Path $CategoryDirectory $Name
+    if (!(Test-Path -LiteralPath $File -PathType Leaf)) {
+        throw "Missing category configuration: $Name"
+    }
+}
 
 $BundledData = "$ConfigFile;configuracion"
 
@@ -186,22 +200,16 @@ $RootExe = Join-Path $Root "Iniciar_Filtro.exe"
 if (!(Test-Path $BuiltExe)) {
     throw "Expected executable was not created."
 }
+$DistCategoryDirectory = Join-Path $Root "dist\Filtro"
+New-Item -ItemType Directory -Path $DistCategoryDirectory -Force | Out-Null
 
-$BackupDirectory = Join-Path $Root "respaldos"
-
-New-Item -ItemType Directory `
-    -Path $BackupDirectory -Force | Out-Null
-
-if (Test-Path $RootExe) {
-
-    $Stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-
-    Copy-Item $RootExe (
-        Join-Path $BackupDirectory "Iniciar_Filtro_$Stamp.exe"
-    )
-
-    Write-Host "Previous executable preserved."
+foreach ($Name in $RequiredCategoryFiles) {
+    Copy-Item (Join-Path $CategoryDirectory $Name) $DistCategoryDirectory -Force
+    if (!(Test-Path (Join-Path $DistCategoryDirectory $Name) -PathType Leaf)) {
+        throw "Category packaging verification failed: $Name"
+    }
 }
+
 
 Copy-Item $BuiltExe $RootExe -Force
 

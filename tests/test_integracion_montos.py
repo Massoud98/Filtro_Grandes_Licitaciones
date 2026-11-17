@@ -1,4 +1,4 @@
-"""Integration tests for monetary tender filtering."""
+﻿"""Integration tests for monetary tender filtering."""
 
 import json
 import tempfile
@@ -66,7 +66,7 @@ class PruebasIntegracionMontos(unittest.TestCase):
                     EVALUACION + timedelta(days=10)
                 ).isoformat(),
             },
-            "Items": {"Listado": []},
+            "Items": {"Listado": [{"CodigoCategoria": "43211500", "NombreProducto": "Notebook"}]},
         }
 
         datos = {
@@ -160,7 +160,7 @@ class PruebasIntegracionMontos(unittest.TestCase):
                     EVALUACION + timedelta(days=10)
                 ).isoformat(),
             },
-            "Items": {"Listado": []},
+            "Items": {"Listado": [{"CodigoCategoria": "43211500", "NombreProducto": "Notebook"}]},
         }
 
         datos = {
