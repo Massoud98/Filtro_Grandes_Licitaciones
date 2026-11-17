@@ -200,7 +200,9 @@ class PruebasExcelFiltrado(unittest.TestCase):
         with closing(load_workbook(ruta)) as libro:
             hoja = libro["Revision manual"]
             self.assertEqual(hoja.max_row, 1)
-            self.assertEqual(hoja.max_column, 17)
+            self.assertEqual(hoja.max_column, 19)
+            self.assertEqual(hoja.cell(1, 18).value, "Categorias")
+            self.assertEqual(hoja.cell(1, 19).value, "Productos")
 
     def test_excel_original_intacto(self):
         original = (

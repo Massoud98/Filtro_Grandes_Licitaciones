@@ -41,6 +41,8 @@ ENCABEZADOS = [
     "Clasificacion L1",
     "Adjuntos",
     "Aviso plazo",
+    "Categorias",
+    "Productos",
 ]
 
 URL_LICITACION = (
@@ -87,6 +89,7 @@ def preparar_columnas(hoja):
     anchos = [
         22, 12, 75, 23, 23, 75, 22, 12, 22,
         25, 18, 18, 20, 65, 24, 30, 22,
+        48, 70,
     ]
 
     for indice, ancho in enumerate(anchos, start=1):
@@ -139,6 +142,23 @@ def crear_hoja_licitaciones(
     for numero_fila, fila in enumerate(filas, start=2):
         codigo = fila["id"]
         detalle = detalles[codigo]
+
+        items = (detalle.get("Items") or {}).get("Listado") or []
+        if not isinstance(items, list):
+            raise ValueError(f"Items invalidos en {codigo}.")
+
+        categorias = ";".join(dict.fromkeys(
+            str(item.get("CodigoCategoria") or "").strip()
+            for item in items
+            if str(item.get("CodigoCategoria") or "").strip()
+        ))
+
+        productos = ";".join(dict.fromkeys(
+            str(item.get("NombreProducto") or "").strip()
+            for item in items
+            if str(item.get("NombreProducto") or "").strip()
+        ))
+
         fechas = detalle.get("Fechas") or {}
 
         publicacion = convertir_fecha(
@@ -214,6 +234,8 @@ def crear_hoja_licitaciones(
             estado_l1,
             attachment_status_for_tender(codigo, attachment_lookup),
             calcular_aviso_plazo(fila, reporte) if reporte else "",
+            categorias,
+            productos,
         ])
 
         if numero_fila % 2 == 0:

@@ -27,7 +27,8 @@ class PruebasOrganismo(unittest.TestCase):
                 hoja = libro["Incluidas"]
                 encabezados = [celda.value for celda in hoja[1]]
 
-                self.assertEqual(len(encabezados), 17)
+                self.assertEqual(len(encabezados), 19)
+                self.assertEqual(encabezados[-2:], ["Categorias", "Productos"])
                 self.assertEqual(encabezados[5], "Organismo")
 
                 filas = {
