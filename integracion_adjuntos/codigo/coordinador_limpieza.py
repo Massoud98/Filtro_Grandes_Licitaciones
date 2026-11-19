@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from checkpoint_descargas import (
+    extraction_folder_name,
     save_checkpoint,
     validate_checkpoint_structure,
     verify_attachment,
@@ -51,7 +52,7 @@ def cleanup_extracted(
 
     original_dir = downloads_root / tender_id
     original = original_dir / record["filename"]
-    output = extracted_root / tender_id / Path(record["filename"]).stem
+    output = extracted_root / tender_id / extraction_folder_name(record["filename"])
 
     verify_extracted(output, record, tender_id)
 

@@ -8,6 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from checkpoint_descargas import extraction_folder_name
 from extractor_pdf import extract_pdf
 from extractor_word import extract_docx
 from extractor_excel import extract_xlsx
@@ -220,7 +221,7 @@ def extract_verified(
 
     tender_output.mkdir(exist_ok=True)
 
-    output = tender_output / source.stem
+    output = tender_output / extraction_folder_name(record["filename"])
 
     if output.exists() or output.is_symlink():
         verify_extracted(output, record, tender_id)

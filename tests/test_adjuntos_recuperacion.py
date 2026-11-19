@@ -16,8 +16,15 @@ if str(PROJECT) not in sys.path:
 if str(MODULES) not in sys.path:
     sys.path.insert(0, str(MODULES))
 
-from checkpoint_descargas import create_checkpoint, save_checkpoint
+from checkpoint_descargas import (
+    CheckpointError,
+    create_checkpoint,
+    extraction_folder_name,
+    save_checkpoint,
+    verify_extraction_lifecycle,
+)
 from coordinador_produccion import extract_downloaded
+from lotes_produccion import prepare_batch
 from coordinador_limpieza import cleanup_extracted
 from extractor_produccion import ProductionExtractionError
 
@@ -130,6 +137,96 @@ class AttachmentRecoveryTests(unittest.TestCase):
         self.assertEqual(result, self.output)
         self.assertEqual(self.record["status"], "EXTRACTED")
         self.assertTrue(self.original.exists())
+
+    def test_recover_windows_trailing_period_extraction(self):
+        self.original.rename(self.original_dir / "CRONOGRAMA_JUGUETES___2026..pdf")
+        self.record["filename"] = "CRONOGRAMA_JUGUETES___2026..pdf"
+        self.output = self.extracted / self.first / "CRONOGRAMA_JUGUETES___2026"
+        self.publish_extraction()
+        save_checkpoint(self.checkpoint_path, self.checkpoint)
+
+        result = extract_downloaded(
+            self.checkpoint, self.checkpoint_path,
+            self.downloads, self.extracted, self.first,
+            self.record, self.root, None, None,
+            authorized_ids=self.authorized,
+        )
+        self.assertEqual(result, self.output)
+        self.assertEqual(self.record["status"], "EXTRACTED")
+        self.assertTrue((self.original_dir / self.record["filename"]).exists())
+
+    def test_prepare_batch_recovers_interrupted_windows_extraction(self):
+        self.original.rename(
+            self.original_dir / "CRONOGRAMA_JUGUETES___2026..pdf"
+        )
+        self.record["filename"] = "CRONOGRAMA_JUGUETES___2026..pdf"
+        self.output = (
+            self.extracted / self.first / "CRONOGRAMA_JUGUETES___2026"
+        )
+        self.publish_extraction()
+        save_checkpoint(self.checkpoint_path, self.checkpoint)
+
+        path, restored = prepare_batch(
+            self.classification,
+            self.checkpoints,
+            self.downloads,
+            self.extracted,
+            1,
+            [self.first],
+            authorized_ids=self.authorized,
+        )
+        self.assertEqual(path, self.checkpoint_path)
+        self.assertEqual(
+            restored["licitaciones"][self.first]["attachments"][0]["status"],
+            "EXTRACTED",
+        )
+        self.assertTrue(
+            verify_extraction_lifecycle(
+                restored, self.downloads, self.extracted,
+                authorized_ids=self.authorized,
+            )
+        )
+        self.assertTrue(
+            (self.original_dir / self.record["filename"]).exists()
+        )
+
+    def test_prepare_batch_rejects_corrupted_interrupted_extraction(self):
+        self.publish_extraction()
+        (self.output / "contenido.txt").write_text(
+            "CORRUPTED", encoding="utf-8"
+        )
+        with self.assertRaises(Exception):
+            prepare_batch(
+                self.classification,
+                self.checkpoints,
+                self.downloads,
+                self.extracted,
+                1,
+                [self.first],
+                authorized_ids=self.authorized,
+            )
+        self.assertTrue(self.original.exists())
+        self.assertEqual(self.record["status"], "DOWNLOADED")
+
+    def test_windows_extraction_folder_collision(self):
+        self.assertEqual(
+            extraction_folder_name("CRONOGRAMA_JUGUETES___2026..pdf"),
+            "CRONOGRAMA_JUGUETES___2026",
+        )
+        original_bytes = self.original.read_bytes()
+        self.original.unlink()
+        for filename in ("bases..pdf", "bases...pdf"):
+            (self.original_dir / filename).write_bytes(original_bytes)
+        self.record["filename"] = "bases..pdf"
+        duplicate = dict(self.record)
+        duplicate["control_id"] = "attachment_2"
+        duplicate["filename"] = "bases...pdf"
+        self.checkpoint["licitaciones"][self.first]["attachments"].append(duplicate)
+        with self.assertRaisesRegex(CheckpointError, "Duplicate or invalid extraction folder name"):
+            verify_extraction_lifecycle(
+                self.checkpoint, self.downloads, self.extracted,
+                authorized_ids=self.authorized,
+            )
 
     def test_cleanup_from_extracted_state(self):
         self.publish_extraction()

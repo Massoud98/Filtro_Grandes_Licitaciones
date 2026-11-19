@@ -182,6 +182,15 @@ ATTACHMENT_STATUSES = frozenset({
 })
 
 
+def extraction_folder_name(filename):
+    """Return a stable Windows-safe extraction directory name."""
+    validate_windows_filename(filename)
+    stem = Path(filename).stem.rstrip(" .")
+    if not stem or stem in (".", ".."):
+        raise CheckpointError("Invalid extraction folder name.")
+    return stem
+
+
 def validate_windows_filename(filename):
     if not isinstance(filename, str) or not filename:
         raise CheckpointError("Invalid attachment filename.")
@@ -540,7 +549,7 @@ def verify_extraction_lifecycle(data, downloads_root, extracted_root, *, authori
 
         for record in entry["attachments"]:
             filename = validate_windows_filename(record["filename"])
-            folder_name = Path(filename).stem
+            folder_name = extraction_folder_name(filename)
 
             if (
                 not folder_name

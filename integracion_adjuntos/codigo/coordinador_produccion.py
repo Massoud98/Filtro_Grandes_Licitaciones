@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from checkpoint_descargas import (
+    extraction_folder_name,
     save_checkpoint,
     validate_checkpoint_structure,
     verify_attachment,
@@ -48,7 +49,7 @@ def extract_downloaded(
 
     # Recover verified outputs published before checkpoint persistence.
     source = downloads_root / tender_id / record["filename"]
-    existing_output = extracted_root / tender_id / Path(record["filename"]).stem
+    existing_output = extracted_root / tender_id / extraction_folder_name(record["filename"])
 
     if existing_output.exists() or existing_output.is_symlink():
         if not verify_attachment(record, source.parent):

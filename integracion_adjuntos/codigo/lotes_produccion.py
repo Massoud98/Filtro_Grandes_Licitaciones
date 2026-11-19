@@ -8,6 +8,8 @@ from pathlib import Path
 from seleccion_incluidas import load_included_tenders
 from checkpoint_descargas import (
     CheckpointError,
+    extraction_folder_name,
+    verify_attachment,
     create_checkpoint,
     load_checkpoint,
     save_checkpoint,
@@ -139,11 +141,41 @@ def prepare_batch(
 
         save_checkpoint(checkpoint_path, checkpoint)
 
+    # Recover an extraction published just before its checkpoint update.
+    # Only known DOWNLOADED records qualify; all existing integrity checks
+    # remain mandatory and unrelated directories are never accepted.
+    from extractor_produccion import verify_extracted
+
+    downloads_root = Path(downloads_root)
+    extracted_root = Path(extracted_root)
+
+    recovered = False
+    for tender_id in checkpoint["ids"]:
+        for record in checkpoint["licitaciones"][tender_id]["attachments"]:
+            if record["status"] != "DOWNLOADED":
+                continue
+
+            output = (
+                extracted_root / tender_id
+                / extraction_folder_name(record["filename"])
+            )
+            if not output.exists() and not output.is_symlink():
+                continue
+
+            if not verify_attachment(record, downloads_root / tender_id):
+                raise CheckpointError("Recovery original verification failed.")
+
+            verify_extracted(output, record, tender_id)
+            record["status"] = "EXTRACTED"
+            recovered = True
+
     verify_extraction_lifecycle(
         checkpoint,
-        Path(downloads_root),
-        Path(extracted_root),
+        downloads_root,
+        extracted_root,
         authorized_ids=eligible_ids,
     )
+    if recovered:
+        save_checkpoint(checkpoint_path, checkpoint)
 
     return checkpoint_path, checkpoint
