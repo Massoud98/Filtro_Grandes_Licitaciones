@@ -113,11 +113,9 @@ def load_checkpoint(path, ids, classification_path):
     if data.get("ids") != expected["ids"]:
         raise CheckpointError("Eligible IDs changed.")
 
-    if (
-        data.get("classification_sha256")
-        != expected["classification_sha256"]
-    ):
-        raise CheckpointError("Classification source changed.")
+    # The original classification fingerprint is retained as historical
+    # metadata. Resume compatibility is established by the exact ordered
+    # eligible batch IDs, validated above, not by unrelated JSON changes.
 
     entries = data.get("licitaciones")
 

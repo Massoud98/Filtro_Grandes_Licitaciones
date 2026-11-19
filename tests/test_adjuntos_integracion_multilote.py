@@ -111,6 +111,49 @@ class ProductionMultiBatchTests(unittest.TestCase):
         with self.assertRaises(CheckpointError):
             self.prepare(1)
 
+    def test_resume_when_classification_hash_changes_but_ids_match(self):
+        checkpoint_path, original = self.prepare(1)
+        original_hash = original["classification_sha256"]
+
+        payload = json.loads(
+            self.classification.read_text(encoding="utf-8")
+        )
+        payload["metadata_revision"] = "updated"
+
+        self.classification.write_text(
+            json.dumps(payload, indent=2),
+            encoding="utf-8",
+        )
+
+        resumed_path, resumed = self.prepare(1)
+
+        self.assertEqual(checkpoint_path, resumed_path)
+        self.assertEqual(resumed["ids"], self.ids[:5])
+        self.assertEqual(resumed["classification_sha256"], original_hash)
+        self.assertEqual(resumed["licitaciones"], original["licitaciones"])
+
+    def test_changed_eligible_ids_reject_existing_checkpoint(self):
+        checkpoint_path, _ = self.prepare(1)
+        original_bytes = checkpoint_path.read_bytes()
+
+        payload = json.loads(
+            self.classification.read_text(encoding="utf-8")
+        )
+        payload["resultados"][0]["id"] = "999-1-LE26"
+
+        self.classification.write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+
+        self.ids[0] = "999-1-LE26"
+        self.authorized = frozenset(self.ids)
+
+        with self.assertRaisesRegex(CheckpointError, "Eligible IDs changed"):
+            self.prepare(1)
+
+        self.assertEqual(checkpoint_path.read_bytes(), original_bytes)
+
     def test_wrong_batch_membership_is_rejected(self):
         with self.assertRaises(BatchPlanningError):
             self.prepare(1, self.ids[5:])
