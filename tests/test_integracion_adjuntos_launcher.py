@@ -164,6 +164,7 @@ class Harness:
             "credential": lambda *args: "TEST_TOKEN",
             "backup_existing": lambda path: self.events.append("backup"),
             "load_existing_publication": lambda *args: None,
+            "ejecutar_procesamiento_adjuntos": lambda path: {"status": "SUCCESS"},
         }
 
         exec(isolated_launcher_functions(), namespace)

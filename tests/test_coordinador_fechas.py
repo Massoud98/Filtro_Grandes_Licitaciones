@@ -130,6 +130,7 @@ class CoordinatorTests(unittest.TestCase):
                 "__builtins__": __builtins__,
                 "os": os,
                 "run_pipeline": fake_pipeline,
+                "ejecutar_procesamiento_adjuntos": lambda path: {"status": "SUCCESS"},
             }
             exec(isolated_coordinator(), namespace)
 

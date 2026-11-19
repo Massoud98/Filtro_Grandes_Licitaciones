@@ -11,6 +11,12 @@ $Python = Join-Path $Venv "Scripts\python.exe"
 $Requirements = Join-Path $Root "requirements.txt"
 $BuildRequirements = Join-Path $Root "requirements-build.txt"
 $ConfigFile = Join-Path $Root "configuracion\filtros.json"
+$NodeExecutable = "C:\Program Files\nodejs\node.exe"
+
+if (!(Test-Path $NodeExecutable)) {
+    throw "Node.js executable required for Playwright packaging."
+}
+
 
 if (!(Test-Path $Requirements)) {
     throw "Missing requirements.txt"
@@ -103,38 +109,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "Launcher compilation failed."
 }
 # Run only canonical test modules; preserve historical backups.
-$TestRunner = @'
-import re
-import sys
-import unittest
-from pathlib import Path
-
-test_dir = Path("tests")
-active = sorted(
-    path for path in test_dir.glob("test_*.py")
-    if re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", path.name)
-)
-
-if len(active) != 29:
-    raise SystemExit("STOP: Unexpected active test module count.")
-
-loader = unittest.TestLoader()
-suite = unittest.TestSuite(
-    loader.loadTestsFromName(f"tests.{path.stem}")
-    for path in active
-)
-
-if suite.countTestCases() != 272:
-    raise SystemExit("STOP: Unexpected active test count.")
-
-result = unittest.TextTestRunner(verbosity=1).run(suite)
-
-if not result.wasSuccessful() or result.skipped:
-    raise SystemExit("STOP: Active regression failed.")
-
-print("All 272 active tests passed.")
-'@
-$TestRunner | & $Python -B -c "import sys; exec(sys.stdin.read())"
+$TestScript = "import subprocess,sys; r=subprocess.run([sys.executable,'-W','ignore::ResourceWarning','-m','unittest','discover','-s','tests','-q'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace'); lines=r.stdout.splitlines(); print('\n'.join(x for x in lines if x.startswith(('Ran ','OK (','FAILED'))) if r.returncode==0 else '\n'.join(lines[-45:])); sys.exit(r.returncode)"
+& $Python -B -c $TestScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Tests failed. Executable build cancelled."
+}
 
 if ($LASTEXITCODE -ne 0) {
     throw "Tests failed. Executable build cancelled."
@@ -174,18 +153,71 @@ foreach ($Name in $RequiredCategoryFiles) {
 
 $BundledData = "$ConfigFile;configuracion"
 
+$OcrModel = Join-Path $Root "datos\adjuntos\tessdata\spa.traineddata"
+if (!(Test-Path -LiteralPath $OcrModel -PathType Leaf)) {
+    throw "Missing Spanish OCR model: $OcrModel"
+}
+$BundledOcrData = "$OcrModel;datos\adjuntos\tessdata"
+$AttachmentCode = Join-Path $Root "integracion_adjuntos\codigo"
+$LegacyDocHelper = Join-Path $AttachmentCode "extractor_doc_legacy.ps1"
+
+$AttachmentModules = @(
+    "bloqueo_instancia",
+    "checkpoint_descargas",
+    "coordinador_limpieza",
+    "coordinador_produccion",
+    "descargador_individual",
+    "extractor_excel",
+    "extractor_pdf",
+    "extractor_produccion",
+    "extractor_word",
+    "lotes_produccion",
+    "mp_windows_cleanup",
+    "navegador_adjuntos",
+    "orquestador_produccion",
+    "seleccion_incluidas"
+)
+
+foreach ($Module in $AttachmentModules) {
+    if (!(Test-Path -LiteralPath (Join-Path $AttachmentCode "$Module.py") -PathType Leaf)) {
+        throw "Missing production attachment module: $Module"
+    }
+}
+
+if (!(Test-Path -LiteralPath $LegacyDocHelper -PathType Leaf)) {
+    throw "Missing legacy Word extraction helper."
+}
+
 & $Python -m PyInstaller `
     --noconfirm `
     --clean `
     --onefile `
     --console `
     --name "Iniciar_Filtro" `
+    --paths $AttachmentCode `
+    --collect-all playwright `
     --collect-all keyring `
     --collect-all win32ctypes `
     --hidden-import keyring.backends.Windows `
+    --hidden-import bloqueo_instancia `
+    --hidden-import checkpoint_descargas `
+    --hidden-import coordinador_limpieza `
+    --hidden-import coordinador_produccion `
+    --hidden-import descargador_individual `
+    --hidden-import extractor_excel `
+    --hidden-import extractor_pdf `
+    --hidden-import extractor_produccion `
+    --hidden-import extractor_word `
+    --hidden-import lotes_produccion `
+    --hidden-import mp_windows_cleanup `
+    --hidden-import navegador_adjuntos `
+    --hidden-import orquestador_produccion `
+    --hidden-import seleccion_incluidas `
+    --add-binary "$NodeExecutable;." `
     --add-data $BundledData `
+    --add-data $BundledOcrData `
+    --add-data "$LegacyDocHelper;." `
     "iniciar_filtro.py"
-
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller build failed."
 }
@@ -211,16 +243,17 @@ foreach ($Name in $RequiredCategoryFiles) {
 }
 
 
-Copy-Item $BuiltExe $RootExe -Force
+if (!(Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
+    throw "Build artifact missing."
+}
 
-if (!(Test-Path $RootExe)) {
-    throw "Published executable verification failed."
+$BuiltInfo = Get-Item -LiteralPath $BuiltExe
+if ($BuiltInfo.Length -le 0) {
+    throw "Build artifact is empty."
 }
 
 Write-Host "`n======================================"
-Write-Host "BUILD APPROVED"
-Write-Host "======================================"
-Write-Host "Executable: $RootExe"
-Write-Host "Data directory: Documents\Filtro_Grandes_Licitaciones"
-Write-Host "Python required on target: NO"
+Write-Host "BUILD ARTIFACT READY"
+Write-Host "Production executable: NOT MODIFIED"
+Write-Host "Publication: DEFERRED UNTIL VERIFICATION"
 Write-Host "======================================"

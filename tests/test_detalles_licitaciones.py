@@ -121,18 +121,25 @@ class DetailRetrievalTests(unittest.TestCase):
         mock_sleep.assert_any_call(5)
 
     def test_permanent_http_error_preserves_progress(self):
+        import io
+        from contextlib import redirect_stdout
+
+        secret = "test-ticket"
         error_response = Mock()
         error_response.status_code = 401
 
         http_error = requests.HTTPError(
-            response=error_response
+            f"401 Unauthorized: ticket={secret}",
+            response=error_response,
         )
+
+        output = io.StringIO()
 
         with patch.object(
             servicio.requests,
             "get",
             side_effect=http_error,
-        ) as mock_get:
+        ) as mock_get, redirect_stdout(output):
 
             result = servicio.obtener_detalles(
                 self.fecha, intervalo=0
@@ -145,6 +152,11 @@ class DetailRetrievalTests(unittest.TestCase):
 
         progress = self.read_progress()
         self.assertIn("TEST-001", progress["errores"])
+
+        serialized = json.dumps(progress, ensure_ascii=False)
+
+        self.assertNotIn(secret, serialized)
+        self.assertNotIn(secret, output.getvalue())
 
     def test_completed_tenders_are_not_requested_again(self):
         progress_path = (

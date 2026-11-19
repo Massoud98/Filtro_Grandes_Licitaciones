@@ -61,12 +61,24 @@ class PruebasBloqueoSnapshot(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                cwd=Path(__file__).resolve().parents[1],
             )
 
             try:
                 mensaje = proceso.stdout.readline().strip()
 
-                self.assertEqual(mensaje, "LOCK_ACQUIRED")
+                if mensaje != "LOCK_ACQUIRED":
+                    try:
+                        salida, error = proceso.communicate(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proceso.kill()
+                        salida, error = proceso.communicate(timeout=5)
+
+                    self.fail(
+                        f"Expected LOCK_ACQUIRED; received {mensaje!r}; "
+                        f"child exit code={proceso.returncode}; "
+                        f"remaining stdout={salida!r}; stderr={error!r}"
+                    )
 
                 with self.assertRaises(ErrorSnapshotMonedas):
                     with bloqueo_snapshot(ruta, espera_maxima=0.3):
