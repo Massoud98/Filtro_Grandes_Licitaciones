@@ -5,10 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 PROJECT = Path(__file__).resolve().parents[1]
 MODULES = PROJECT / "integracion_adjuntos" / "codigo"
+
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
 
 if str(MODULES) not in sys.path:
     sys.path.insert(0, str(MODULES))
@@ -264,6 +267,39 @@ class OrchestratorRecoveryTests(unittest.TestCase):
 
         self.assertEqual(self.entry["status"], "BLOCKED")
         self.assertEqual(self.persisted(), self.checkpoint)
+
+
+class BrowserLauncherTests(unittest.TestCase):
+    def test_new_browser_uses_installed_chrome_channel(self):
+        from orquestador_produccion import ensure_browser, PROFILE
+
+        playwright = MagicMock()
+        expected_context = object()
+        playwright.chromium.launch_persistent_context.return_value = (
+            expected_context
+        )
+
+        result = ensure_browser(playwright, None)
+
+        self.assertIs(result, expected_context)
+        playwright.chromium.launch_persistent_context.assert_called_once_with(
+            user_data_dir=str(PROFILE),
+            channel="chrome",
+            headless=False,
+            accept_downloads=True,
+            viewport={"width": 1366, "height": 900},
+        )
+
+    def test_existing_browser_context_is_reused(self):
+        from orquestador_produccion import ensure_browser
+
+        playwright = MagicMock()
+        existing_context = object()
+
+        result = ensure_browser(playwright, existing_context)
+
+        self.assertIs(result, existing_context)
+        playwright.chromium.launch_persistent_context.assert_not_called()
 
 
 if __name__ == "__main__":

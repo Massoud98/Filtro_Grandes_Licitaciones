@@ -60,9 +60,6 @@ PROFILE = WORKSPACE / "chrome_profile"
 
 LOCKFILE = WORKSPACE / "produccion.lock"
 
-CHROME = Path(
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-)
 TESSERACT = Path(
     r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 )
@@ -122,14 +119,9 @@ def ensure_browser(playwright, context):
     if context is not None:
         return context
 
-    if CHROME.is_symlink() or not CHROME.is_file():
-        raise ProductionOrchestratorError(
-            "Google Chrome executable missing."
-        )
-
     return playwright.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE),
-        executable_path=str(CHROME),
+        channel="chrome",
         headless=False,
         accept_downloads=True,
         viewport={"width": 1366, "height": 900},

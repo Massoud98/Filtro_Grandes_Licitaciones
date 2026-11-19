@@ -10,6 +10,9 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[1]
 MODULES = PROJECT / "integracion_adjuntos" / "codigo"
 
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+
 if str(MODULES) not in sys.path:
     sys.path.insert(0, str(MODULES))
 
