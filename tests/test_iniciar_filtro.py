@@ -16,6 +16,29 @@ class FakeKeyring:
 
 
 class LauncherTests(unittest.TestCase):
+    def test_help_does_not_run_pipeline(self):
+        with patch.object(iniciar_filtro.sys, "argv", ["Iniciar_Filtro.exe", "--help"]):
+            with patch.object(iniciar_filtro, "run_scheduled_pipeline", side_effect=AssertionError("Production started")):
+                self.assertEqual(iniciar_filtro.main(), 0)
+
+    def test_self_test_does_not_run_pipeline(self):
+        with patch.object(iniciar_filtro.sys, "argv", ["Iniciar_Filtro.exe", "--self-test"]):
+            with patch.object(iniciar_filtro, "run_scheduled_pipeline", side_effect=AssertionError("Production started")):
+                with patch.object(iniciar_filtro, "run_runtime_self_test", return_value=0) as validation:
+                    self.assertEqual(iniciar_filtro.main(), 0)
+                    validation.assert_called_once_with()
+
+    def test_unknown_argument_does_not_run_pipeline(self):
+        with patch.object(iniciar_filtro.sys, "argv", ["Iniciar_Filtro.exe", "--unexpected"]):
+            with patch.object(iniciar_filtro, "run_scheduled_pipeline", side_effect=AssertionError("Production started")):
+                self.assertEqual(iniciar_filtro.main(), 2)
+
+    def test_combined_arguments_do_not_run_pipeline(self):
+        with patch.object(iniciar_filtro.sys, "argv", ["Iniciar_Filtro.exe", "--self-test", "--unexpected"]):
+            with patch.object(iniciar_filtro, "run_scheduled_pipeline", side_effect=AssertionError("Production started")):
+                with patch.object(iniciar_filtro, "run_runtime_self_test", side_effect=AssertionError("Self-test started")):
+                    self.assertEqual(iniciar_filtro.main(), 2)
+
     def test_saved_credential_reused(self):
         kr = FakeKeyring()
         kr.data[(iniciar_filtro.APP_SERVICE, "API_MP")] = "saved"

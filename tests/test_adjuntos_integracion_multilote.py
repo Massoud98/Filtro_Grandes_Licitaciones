@@ -154,6 +154,29 @@ class ProductionMultiBatchTests(unittest.TestCase):
 
         self.assertEqual(checkpoint_path.read_bytes(), original_bytes)
 
+    def test_duplicate_ids_across_checkpoints_rejected(self):
+        self.prepare(1)
+        self.prepare(2)
+        second = self.checkpoints / "lote_0002.json"
+        payload = json.loads(second.read_text(encoding="utf-8"))
+        original = payload["ids"][0]
+        duplicate = self.ids[0]
+        payload["ids"][0] = duplicate
+        payload["licitaciones"][duplicate] = payload["licitaciones"].pop(original)
+        second.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(BatchPlanningError):
+            plan_batches(self.classification, checkpoints_root=self.checkpoints)
+
+    def test_historical_excluded_tender_rejected(self):
+        self.prepare(1)
+        payload = json.loads(self.classification.read_text(encoding="utf-8"))
+        payload["resultados"][0]["estado"] = "excluida"
+        payload["resumen"]["incluida"] -= 1
+        payload["resumen"]["excluida"] += 1
+        self.classification.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(CheckpointError, "Historical excluded tender"):
+            plan_batches(self.classification, checkpoints_root=self.checkpoints)
+
     def test_wrong_batch_membership_is_rejected(self):
         with self.assertRaises(BatchPlanningError):
             self.prepare(1, self.ids[5:])

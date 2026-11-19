@@ -569,7 +569,16 @@ def run_runtime_self_test() -> int:
 
 
 def main() -> int:
-    if "--self-test" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if args == ["--help"]:
+        print("Usage: Iniciar_Filtro.exe [--help | --self-test]")
+        print("No arguments: run the scheduled production pipeline.")
+        return 0
+    if args and args != ["--self-test"]:
+        print("ERROR: Unknown or incompatible arguments.", file=sys.stderr)
+        print("Usage: Iniciar_Filtro.exe [--help | --self-test]", file=sys.stderr)
+        return 2
+    if args == ["--self-test"]:
         try:
             return run_runtime_self_test()
         except Exception as exc:

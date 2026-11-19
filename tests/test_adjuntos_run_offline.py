@@ -138,6 +138,25 @@ class ProductionRunOfflineTests(unittest.TestCase):
                 max_batches=max_batches,
             )
 
+    def test_completed_tender_survives_batch_shift(self):
+        self.execute(max_batches=2)
+        self.assertEqual(len(self.completed), 10)
+
+        payload = json.loads(self.classification.read_text(encoding="utf-8"))
+        inserted = "100-999-LE26"
+        payload["resultados"].insert(9, {"id": inserted, "estado": "incluida"})
+        payload["total"] += 1
+        payload["resumen"]["incluida"] += 1
+        self.classification.write_text(json.dumps(payload), encoding="utf-8")
+        self.ids.insert(9, inserted)
+
+        self.calls.clear()
+        result = self.execute(max_batches=3)
+
+        self.assertEqual(result["batches"], 3)
+        self.assertEqual(self.completed, set(self.ids))
+        self.assertEqual(self.calls.count(inserted), 1)
+
     def test_one_batch_processes_only_five_included(self):
         result = self.execute()
 

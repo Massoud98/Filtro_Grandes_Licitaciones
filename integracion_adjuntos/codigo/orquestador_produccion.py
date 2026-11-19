@@ -568,7 +568,7 @@ def run(classification_path, *, max_batches=None):
         directory.mkdir(parents=True, exist_ok=True)
 
     classification = validate_environment(classification_path)
-    batches = plan_batches(classification)
+    batches = plan_batches(classification, checkpoints_root=CHECKPOINTS)
     authorized_ids = frozenset(
         tender_id for batch in batches for tender_id in batch
     )
@@ -580,7 +580,7 @@ def run(classification_path, *, max_batches=None):
         batches = batches[:max_batches]
 
     print('=== PROCESAMIENTO DE DOCUMENTOS ===')
-    print('Licitaciones incluidas:', sum(len(batch) for batch in plan_batches(classification)))
+    print('Licitaciones incluidas:', sum(len(batch) for batch in plan_batches(classification, checkpoints_root=CHECKPOINTS)))
     print('Lotes disponibles:', available_batches)
     print('Lotes seleccionados:', len(batches))
     print('Tamaño del lote: 5')
@@ -668,7 +668,7 @@ def run(classification_path, *, max_batches=None):
         "batches_available": available_batches,
         "batches_remaining": available_batches - len(batches),
         "tenders": completed,
-        "tenders_remaining": sum(len(batch) for batch in plan_batches(classification)[len(batches):]),
+        "tenders_remaining": sum(len(batch) for batch in plan_batches(classification, checkpoints_root=CHECKPOINTS)[len(batches):]),
         "limited": len(batches) < available_batches,
     }
 

@@ -1,10 +1,13 @@
 """Five-tender batch planning and lifecycle-aware checkpoint loading."""
 
 import hashlib
+import json
+import re
 from pathlib import Path
 
 from seleccion_incluidas import load_included_tenders
 from checkpoint_descargas import (
+    CheckpointError,
     create_checkpoint,
     load_checkpoint,
     save_checkpoint,
@@ -17,13 +20,45 @@ class BatchPlanningError(RuntimeError):
     pass
 
 
-def plan_batches(classification_path, batch_size=5):
+def plan_batches(classification_path, batch_size=5, checkpoints_root=None):
     """Return ordered batches containing only included tender IDs."""
 
     if batch_size != 5 or isinstance(batch_size, bool):
         raise BatchPlanningError("Production batch size must be five.")
 
     ids = load_included_tenders(classification_path)
+    if checkpoints_root is not None:
+        root = Path(checkpoints_root)
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
+            raise BatchPlanningError("Unsafe checkpoint directory.")
+        existing = []
+        seen = set()
+        if root.is_dir():
+            paths = sorted(root.glob("lote_*.json"))
+            for position, path in enumerate(paths, 1):
+                if path.is_symlink() or not path.is_file():
+                    raise BatchPlanningError("Unsafe checkpoint file.")
+                if re.fullmatch(r"lote_[0-9]{4}\.json", path.name) is None:
+                    raise BatchPlanningError("Invalid checkpoint filename.")
+                if path.name != f"lote_{position:04d}.json":
+                    raise BatchPlanningError("Nonconsecutive checkpoint numbers.")
+                try:
+                    checkpoint = json.loads(path.read_text(encoding="utf-8"))
+                    validate_checkpoint_structure(checkpoint)
+                except Exception as exc:
+                    raise BatchPlanningError("Invalid existing checkpoint.") from exc
+                batch_ids = checkpoint["ids"]
+                if len(batch_ids) > batch_size or seen.intersection(batch_ids):
+                    raise BatchPlanningError("Invalid or duplicate checkpoint membership.")
+                if not set(batch_ids).issubset(set(ids)):
+                    raise CheckpointError("Eligible IDs changed. Historical excluded tender requires reconciliation.")
+                existing.append(batch_ids)
+                seen.update(batch_ids)
+        ids = [tender_id for tender_id in ids if tender_id not in seen]
+        return existing + [
+            ids[position:position + batch_size]
+            for position in range(0, len(ids), batch_size)
+        ]
 
     return [
         ids[position:position + batch_size]
@@ -59,7 +94,7 @@ def prepare_batch(
     if not ids or len(ids) > 5 or len(ids) != len(set(ids)):
         raise BatchPlanningError("Invalid batch membership.")
 
-    planned = plan_batches(classification_path)
+    planned = plan_batches(classification_path, checkpoints_root=checkpoints_root)
     eligible_ids = {tender_id for batch in planned for tender_id in batch}
 
     if authorized_ids is not None and (
