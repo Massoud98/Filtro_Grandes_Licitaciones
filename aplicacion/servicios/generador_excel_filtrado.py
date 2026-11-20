@@ -1,5 +1,6 @@
 """Generacion del Excel de licitaciones filtradas."""
 
+import copy
 import json
 import os
 from collections import Counter
@@ -316,7 +317,10 @@ def crear_resumen(libro, reporte):
         ("Fecha de evaluacion", reporte["evaluado_en"]),
         ("Cierre minimo", reporte["cierre_minimo"]),
         ("Total licitaciones", total),
-        ("Incluidas", resumen["incluida"]),
+        ("Incluidas en Filtro 1", reporte["incluidas_filtro_1"]),
+        ("Incluidas en Filtro 2", reporte["incluidas_filtro_2"]),
+        ("Incluidas en Filtro 3", "Pendiente de implementar"),
+        ("Incluidas Final", resumen["incluida"]),
         ("Posible para Tienda", resumen.get("posible_tienda", 0)),
         ("Revision manual", resumen["revision_manual"]),
         ("Excluidas", resumen["excluida"]),
@@ -340,15 +344,29 @@ def crear_resumen(libro, reporte):
     hoja.column_dimensions["A"].width = 36
     hoja.column_dimensions["B"].width = 44
 
-    for fila in (10, 11, 12):
-        hoja.cell(fila, 2).number_format = "0.0%"
+    for fila in range(2, hoja.max_row + 1):
+        etiqueta = hoja.cell(fila, 1).value
+        celda = hoja.cell(fila, 2)
+
+        if isinstance(etiqueta, str) and etiqueta.startswith("Porcentaje "):
+            celda.number_format = "0.00%"
+        elif etiqueta in {
+            "Total licitaciones",
+            "Incluidas en Filtro 1",
+            "Incluidas en Filtro 2",
+            "Incluidas Final",
+            "Posible para Tienda",
+            "Revision manual",
+            "Excluidas",
+        }:
+            celda.number_format = "0"
 
     hoja.freeze_panes = "A2"
 
     return hoja
 
 
-def generar_excel_filtrado(fecha, *, attachment_report=None, carpeta_salida=None, fecha_reporte=None, carpeta_datos=None):
+def generar_excel_filtrado(fecha, *, attachment_report=None, carpeta_salida=None, fecha_reporte=None, carpeta_datos=None, evaluaciones_filtro_2=None):
     """Genera y valida un Excel separado del original."""
 
     attachment_lookup = build_attachment_status_lookup(
@@ -385,6 +403,103 @@ def generar_excel_filtrado(fecha, *, attachment_report=None, carpeta_salida=None
         or set(detalles) != set(ids)
     ):
         raise ValueError("Inconsistencia entre los registros.")
+
+    if evaluaciones_filtro_2 is not None:
+        ruta_evaluaciones = Path(evaluaciones_filtro_2)
+        almacen = json.loads(
+            ruta_evaluaciones.read_text(encoding="utf-8")
+        )
+        evaluaciones = almacen.get("evaluations")
+
+        if not isinstance(evaluaciones, dict):
+            raise ValueError("Registro de Filtro 2 invalido.")
+
+        resultados = copy.deepcopy(resultados)
+        reporte = copy.deepcopy(reporte)
+
+        indice = {fila["id"]: fila for fila in resultados}
+
+        for codigo, evaluacion in evaluaciones.items():
+            if codigo not in indice:
+                raise ValueError(
+                    f"Evaluacion Filtro 2 fuera del reporte: {codigo}"
+                )
+
+            if not isinstance(evaluacion, dict):
+                raise ValueError(
+                    f"Evaluacion Filtro 2 invalida: {codigo}"
+                )
+
+            if evaluacion.get("tender_id") != codigo:
+                raise ValueError(
+                    f"ID inconsistente en Filtro 2: {codigo}"
+                )
+
+            if evaluacion.get("rule_version") != "filtro2-jessika-v2":
+                # Preserve historical evidence without applying stale decisions.
+                continue
+
+            if not evaluacion.get("evidence_fingerprint"):
+                raise ValueError(
+                    f"Sin huella de evidencia: {codigo}"
+                )
+
+            decision = evaluacion.get("decision")
+
+            destinos = {
+                "APROBADA": "incluida",
+                "EXCLUIDA": "excluida",
+                "REVISION_MANUAL": "revision_manual",
+            }
+
+            if decision not in destinos:
+                raise ValueError(
+                    f"Decision Filtro 2 invalida: {codigo}"
+                )
+
+            fila = indice[codigo]
+
+            if fila["estado"] != "incluida":
+                continue
+
+            fila["estado"] = destinos[decision]
+
+            razones = evaluacion.get("reasons") or []
+
+            if not isinstance(razones, list):
+                raise ValueError(
+                    f"Razones Filtro 2 invalidas: {codigo}"
+                )
+
+            descripcion = (
+                "Filtro 2: "
+                + decision
+                + (
+                    " - " + "; ".join(str(r) for r in razones)
+                    if razones else ""
+                )
+            )
+
+            fila["observaciones"] = (
+                list(fila.get("observaciones") or [])
+                + [descripcion]
+            )
+
+        reporte["resumen"] = dict(
+            Counter(fila["estado"] for fila in resultados)
+        )
+
+    reporte["incluidas_filtro_1"] = sum(
+        fila["estado"] == "incluida"
+        for fila in json.loads(
+            ruta_filtros.read_text(encoding="utf-8")
+        )["resultados"]
+    )
+
+    reporte["incluidas_filtro_2"] = sum(
+        fila["estado"] == "incluida"
+        for fila in resultados
+    )
 
     conteos = Counter(
         fila["estado"] for fila in resultados

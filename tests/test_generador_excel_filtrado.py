@@ -322,6 +322,86 @@ class PruebasExcelFiltrado(unittest.TestCase):
             self.assertIsNone(hoja.cell(2, 12).value)
 
 
+    def test_filtro_2_preservado_en_regeneracion(self):
+        """A rerun must preserve previously saved Filter 2 decisions."""
+        from contextlib import closing
+        from openpyxl import load_workbook
+
+        evaluations_path = self.carpeta / "evaluaciones_filtro_2.json"
+
+        # First execution: Filter 1 has not yet received Filter 2 results.
+        initial = modulo.generar_excel_filtrado(
+            FECHA,
+            carpeta_salida=self.raiz / "salida",
+            carpeta_datos=self.carpeta,
+        )
+
+        with closing(load_workbook(initial)) as book:
+            self.assertEqual(book["Incluidas"].max_row - 1, 2)
+            self.assertEqual(book["Revision manual"].max_row - 1, 1)
+
+        evaluation = {
+            "schema_version": 1,
+            "evaluations": {
+                "TEST-1": {
+                    "tender_id": "TEST-1",
+                    "decision": "REVISION_MANUAL",
+                    "reasons": ["Contradiccion documental"],
+                    "evidence": [],
+                    "evidence_fingerprint": "synthetic-fingerprint",
+                    "rule_version": "filtro2-jessika-v2",
+                }
+            },
+        }
+
+        evaluations_path.write_text(
+            json.dumps(evaluation),
+            encoding="utf-8",
+        )
+        original_evaluations = evaluations_path.read_bytes()
+
+        def verify_workbook(path):
+            with closing(load_workbook(path)) as book:
+                included = [
+                    book["Incluidas"].cell(row, 1).value
+                    for row in range(2, book["Incluidas"].max_row + 1)
+                ]
+                manual = [
+                    book["Revision manual"].cell(row, 1).value
+                    for row in range(2, book["Revision manual"].max_row + 1)
+                ]
+
+                self.assertNotIn("TEST-1", included)
+                self.assertIn("TEST-1", manual)
+                self.assertIn("TEST-2", included)
+
+        # First execution: final Excel after Filter 2.
+        completed = modulo.generar_excel_filtrado(
+            FECHA,
+            carpeta_salida=self.raiz / "salida",
+            carpeta_datos=self.carpeta,
+            evaluaciones_filtro_2=evaluations_path,
+        )
+        verify_workbook(completed)
+
+        # Second execution: preliminary Excel generation must apply
+        # existing Filter 2 evaluations immediately.
+        rerun = modulo.generar_excel_filtrado(
+            FECHA,
+            carpeta_salida=self.raiz / "salida",
+            carpeta_datos=self.carpeta,
+            evaluaciones_filtro_2=evaluations_path,
+        )
+        verify_workbook(rerun)
+
+        # A subsequent HTTP 403 cannot erase the saved evaluation
+        # if the downloader stops before the next Excel generation.
+        self.assertEqual(
+            evaluations_path.read_bytes(),
+            original_evaluations,
+        )
+
+
 class PruebasExcelTienda(unittest.TestCase):
     """Verifica la nueva hoja Tienda y los avisos de plazo."""
 
@@ -367,7 +447,7 @@ class PruebasExcelTienda(unittest.TestCase):
                 for fila in libro["Resumen"].iter_rows()
             }
             self.assertEqual(resumen["Total licitaciones"], 4)
-            self.assertEqual(resumen["Incluidas"], 1)
+            self.assertEqual(resumen["Incluidas Final"], 1)
             self.assertEqual(resumen["Posible para Tienda"], 1)
             self.assertEqual(
                 resumen["Porcentaje posible para Tienda"],

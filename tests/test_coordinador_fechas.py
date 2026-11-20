@@ -131,6 +131,7 @@ class CoordinatorTests(unittest.TestCase):
                 "os": os,
                 "run_pipeline": fake_pipeline,
                 "ejecutar_procesamiento_adjuntos": lambda path: {"status": "SUCCESS"},
+                "ejecutar_filtro_2": lambda *args: {"status": "SUCCESS", "ready": 0, "saved": 0, "counts": {}},
             }
             exec(isolated_coordinator(), namespace)
 
@@ -176,6 +177,7 @@ class CoordinatorTests(unittest.TestCase):
             ("original", "2026-11-16"),
             ("filter", "2026-11-16"),
             ("filtered", "2026-11-16"),
+            ("filtered", "2026-11-16"),
         ])
 
     def test_tuesday_to_friday_previous_day(self):
@@ -192,6 +194,7 @@ class CoordinatorTests(unittest.TestCase):
                     ("consolidate", (previous,), run_date.isoformat()),
                     ("original", run_date.isoformat()),
                     ("filter", run_date.isoformat()),
+                    ("filtered", run_date.isoformat()),
                     ("filtered", run_date.isoformat()),
                 ])
 

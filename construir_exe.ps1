@@ -212,6 +212,16 @@ if (!(Test-Path -LiteralPath $LegacyDocHelper -PathType Leaf)) {
     --hidden-import mp_windows_cleanup `
     --hidden-import navegador_adjuntos `
     --hidden-import orquestador_produccion `
+    --hidden-import adaptador_montos_api_filtro_2 `
+    --hidden-import coordinador_filtro_2 `
+    --hidden-import estado_filtro_2 `
+    --hidden-import evaluador_filtro_2 `
+    --hidden-import integrador_filtro_2 `
+    --hidden-import interprete_filtro_2 `
+    --hidden-import pipeline_filtro_2 `
+    --hidden-import registro_filtro_2 `
+    --hidden-import validador_filtro_2 `
+    --hidden-import workspace_diario `
     --hidden-import seleccion_incluidas `
     --add-binary "$NodeExecutable;." `
     --add-data $BundledData `

@@ -87,25 +87,15 @@ class LauncherTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 iniciar_filtro.load_existing_publication(p, "2026-11-10")
 
-    def test_existing_output_backed_up(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = iniciar_filtro.ROOT
-            try:
-                iniciar_filtro.ROOT = Path(tmp)
-                out = Path(tmp) / "data" / "2026-11-10" / "file.xlsx"
-                out.parent.mkdir(parents=True)
-                out.write_bytes(b"old")
-                backup = iniciar_filtro.backup_existing(out)
-                self.assertTrue(backup.is_file())
-                self.assertEqual(backup.read_bytes(), b"old")
-                self.assertEqual(out.read_bytes(), b"old")
-            finally:
-                iniciar_filtro.ROOT = root
+    def test_backup_function_not_present(self):
+        self.assertFalse(hasattr(iniciar_filtro, "backup_existing"))
 
-    def test_missing_output_not_backed_up(self):
+    def test_existing_output_unchanged_without_backup(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "absent.xlsx"
-            self.assertIsNone(iniciar_filtro.backup_existing(path))
+            path = Path(tmp) / "existing.xlsx"
+            path.write_bytes(b"existing")
+            self.assertEqual(path.read_bytes(), b"existing")
+            self.assertEqual(list(Path(tmp).iterdir()), [path])
 
 
 

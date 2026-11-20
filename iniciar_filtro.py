@@ -60,7 +60,6 @@ def initialize_data_directory() -> None:
         ROOT / "datos" / "reportes",
         ROOT / "datos" / "simulaciones",
         ROOT / "datos" / "tipos_cambio",
-        ROOT / "respaldos" / "ejecuciones",
     ]
 
     ROOT.mkdir(parents=True, exist_ok=True)
@@ -128,15 +127,6 @@ def credential(username: str, prompt: str, required: bool, kr=None) -> str | Non
     return value
 
 
-def backup_existing(path: Path) -> Path | None:
-    if not path.exists():
-        return None
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    destination = ROOT / "respaldos" / "ejecuciones" / path.parent.name / stamp / path.name
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(path, destination)
-    print('Archivo anterior conservado:', destination)
-    return destination
 
 
 def load_existing_publication(path: Path, expected_date: str) -> dict:
@@ -255,6 +245,102 @@ def ejecutar_procesamiento_adjuntos(classification_path):
         }
 
 
+
+def ejecutar_filtro_2(classification_path, details_path, source_date):
+    """Evaluate completed attachments for one dated execution batch."""
+    classification_path = Path(classification_path)
+    details_path = Path(details_path)
+
+    if classification_path.name != "filtros_preliminares.json":
+        raise ValueError("Archivo de clasificacion inesperado.")
+
+    if classification_path.parent.name != source_date:
+        raise ValueError("Fecha de clasificacion inconsistente.")
+
+    if details_path.parent != classification_path.parent:
+        raise ValueError("Los detalles deben pertenecer al mismo lote.")
+
+    if not classification_path.is_file() or not details_path.is_file():
+        raise FileNotFoundError("Faltan datos del lote actual.")
+
+    if getattr(sys, "frozen", False):
+        code_directory = RESOURCE_ROOT
+    else:
+        code_directory = (
+            RESOURCE_ROOT / "integracion_adjuntos" / "codigo"
+        )
+
+    if not code_directory.is_dir():
+        raise FileNotFoundError("No se encontro el motor de Filtro 2.")
+
+    code_path = str(code_directory)
+    if code_path not in sys.path:
+        sys.path.insert(0, code_path)
+
+    from coordinador_filtro_2 import coordinate_filter_2
+    from workspace_diario import resolve_workspace
+
+    workspace_root = ROOT / "datos" / "adjuntos"
+    daily = resolve_workspace(classification_path, workspace_root)
+
+    evaluations_path = (
+        classification_path.parent / "evaluaciones_filtro_2.json"
+    )
+
+    print("\n=== FILTRO 2: DOCUMENTOS EXTRAIDOS ===")
+
+    if not daily.checkpoints.is_dir() or not any(
+        daily.checkpoints.glob("lote_*.json")
+    ):
+        print("No hay lotes descargados para evaluar.")
+        return {
+            "status": "PENDING",
+            "ready": 0,
+            "reused": 0,
+            "saved": 0,
+            "evaluations_path": str(evaluations_path),
+        }
+
+    try:
+        result = coordinate_filter_2(
+            daily.root,
+            details_path,
+            source_date,
+            evaluations_path=evaluations_path,
+            persist=True,
+        )
+    except Exception as exc:
+        print("ERROR EN FILTRO 2")
+        print("Tipo de error:", type(exc).__name__)
+        print("Las evaluaciones ya guardadas se conservan.")
+        return {
+            "status": "ERROR",
+            "error_type": type(exc).__name__,
+            "evaluations_path": str(evaluations_path),
+        }
+
+    counts = result.get("counts", {})
+    ready = counts.get("READY", 0)
+    reused = counts.get("REUSED", 0)
+    saved = counts.get("SAVED", 0)
+
+    print("Licitaciones listas:", ready)
+    print("Evaluaciones reutilizadas:", reused)
+    print("Evaluaciones nuevas:", saved)
+    print("Revision manual:", counts.get("REVISION_MANUAL", 0))
+    print("Excluidas:", counts.get("EXCLUIDA", 0))
+    print("Aprobadas:", counts.get("APROBADA", 0))
+
+    return {
+        "status": "SUCCESS",
+        "ready": ready,
+        "reused": reused,
+        "saved": saved,
+        "counts": counts,
+        "evaluations_path": str(evaluations_path),
+    }
+
+
 def run_pipeline(fecha=None, *, generar_reportes=True):
     # Imports occur after setting FILTRO_LICITACIONES_ROOT.
     from aplicacion.servicios.mercado_publico import CARPETA_ORIGINALES, consultar_licitaciones, obtener_fecha_ayer
@@ -356,17 +442,14 @@ def run_pipeline(fecha=None, *, generar_reportes=True):
 
     report_folder = CARPETA_ORIGINALES.parent.parent
     original = report_folder / "originales" / f"Licitaciones_Mercado_Publico_{fecha_iso}.xlsx"
-    backup_existing(original)
     print("\n=== EXCEL ORIGINAL ===")
     original_result = generar_excel_original(fecha_iso)
 
     filters = folder / "filtros_preliminares.json"
-    backup_existing(filters)
     print("\n=== APLICANDO FILTROS ===")
     filter_result = aplicar_filtros(fecha_iso)
 
     filtered = report_folder / "filtrados" / f"Licitaciones_Filtradas_{fecha_iso}.xlsx"
-    backup_existing(filtered)
     print("\n=== EXCEL FILTRADO ===")
     if attachment_selection is None:
         filtered_result = generar_excel_filtrado(fecha_iso)
@@ -485,18 +568,35 @@ def run_scheduled_pipeline():
         carpeta_datos=carpeta_proceso,
     )
 
-    filtered = generar_excel_filtrado(
-        fecha_reporte,
-        carpeta_datos=carpeta_proceso,
-        carpeta_salida=base / "datos" / "filtrados",
-        fecha_reporte=fecha_reporte,
-    )
+    evaluations_path = carpeta_proceso / "evaluaciones_filtro_2.json"
+
+    def actualizar_excel_filtrado():
+        return generar_excel_filtrado(
+            fecha_reporte,
+            carpeta_datos=carpeta_proceso,
+            carpeta_salida=base / "datos" / "filtrados",
+            fecha_reporte=fecha_reporte,
+            evaluaciones_filtro_2=(
+                evaluations_path if evaluations_path.is_file() else None
+            ),
+        )
+
+    filtered = actualizar_excel_filtrado()
 
     print("\n=== PROCESAMIENTO DE DOCUMENTOS CONSOLIDADOS ===")
     attachment_classification = carpeta_proceso / "filtros_preliminares.json"
     attachment_result = ejecutar_procesamiento_adjuntos(
         attachment_classification
     )
+
+    filter_2_result = ejecutar_filtro_2(
+        attachment_classification,
+        carpeta_proceso / "detalles_licitaciones.json",
+        fecha_reporte,
+    )
+
+    print("\n=== ACTUALIZACION DE EXCEL CON FILTRO 2 ===")
+    filtered = actualizar_excel_filtrado()
 
     print("\n=== RESUMEN DE EJECUCIÓN CONSOLIDADA ===")
     print('Fecha de ejecución:', fecha_reporte)
@@ -505,13 +605,19 @@ def run_scheduled_pipeline():
     print('Excel filtrado:', filtered)
 
     return {
-        "status": ("SUCCESS" if attachment_result.get("status") == "SUCCESS" else "ERROR"),
+        "status": (
+            "SUCCESS"
+            if attachment_result.get("status") == "SUCCESS"
+            and filter_2_result.get("status") != "ERROR"
+            else "ERROR"
+        ),
         "date": fecha_reporte,
         "published": consolidation["published"],
         "original_excel": str(original),
         "filtered_excel": str(filtered),
         "filter_summary": filtered_data.get("resumen", {}),
         "attachment_result": attachment_result,
+        "filter_2_result": filter_2_result,
         "results": results,
     }
 
@@ -533,7 +639,6 @@ def run_runtime_self_test() -> int:
         ROOT / "datos" / "reportes",
         ROOT / "datos" / "simulaciones",
         ROOT / "datos" / "tipos_cambio",
-        ROOT / "respaldos" / "ejecuciones",
     ]
 
     for directory in required_directories:
@@ -571,12 +676,12 @@ def run_runtime_self_test() -> int:
 def main() -> int:
     args = sys.argv[1:]
     if args == ["--help"]:
-        print("Usage: Iniciar_Filtro.exe [--help | --self-test]")
-        print("No arguments: run the scheduled production pipeline.")
+        print("Uso: Iniciar_Filtro.exe [--help | --self-test]")
+        print("Sin argumentos: ejecuta el procesamiento programado.")
         return 0
     if args and args != ["--self-test"]:
-        print("ERROR: Unknown or incompatible arguments.", file=sys.stderr)
-        print("Usage: Iniciar_Filtro.exe [--help | --self-test]", file=sys.stderr)
+        print("ERROR: Argumentos desconocidos o incompatibles.", file=sys.stderr)
+        print("Uso: Iniciar_Filtro.exe [--help | --self-test]", file=sys.stderr)
         return 2
     if args == ["--self-test"]:
         try:
@@ -593,6 +698,21 @@ def main() -> int:
         result = run_scheduled_pipeline()
         status = result.get("status")
 
+        filtro_2 = result.get("filter_2_result") or {}
+        if filtro_2:
+            print("\n=== RESUMEN DEL FILTRO 2 ===")
+            print("Estado:", filtro_2.get("status", "DESCONOCIDO"))
+            for clave, etiqueta in (
+                ("ready", "Licitaciones listas"),
+                ("saved", "Evaluaciones guardadas"),
+            ):
+                if clave in filtro_2:
+                    print(etiqueta + ":", filtro_2[clave])
+            conteos = filtro_2.get("counts")
+            if isinstance(conteos, dict):
+                for clave, cantidad in sorted(conteos.items()):
+                    print(str(clave) + ":", cantidad)
+
         if status == "DETAILS_INCOMPLETE":
             print("\n========================================")
             print("PROCESO INCOMPLETO")
@@ -606,7 +726,19 @@ def main() -> int:
             print("\n========================================")
             print("PROCESO INTERRUMPIDO POR UN ERROR")
             print("========================================")
-            print("No fue posible completar el procesamiento de documentos.")
+            adjuntos = result.get("attachment_result") or {}
+            filtro_2 = result.get("filter_2_result") or {}
+            if adjuntos.get("status") != "SUCCESS":
+                print("La descarga o extracci?n de documentos qued? incompleta.")
+                tipo = adjuntos.get("error_type")
+                if tipo:
+                    print("Tipo de error de documentos:", tipo)
+            if filtro_2.get("status") == "ERROR":
+                print("El Filtro 2 encontr? un error durante su ejecuci?n.")
+            elif filtro_2.get("status") == "PENDING":
+                print("El Filtro 2 est? pendiente de documentos completos.")
+            elif filtro_2.get("status") == "SUCCESS":
+                print("El Filtro 2 proces? los documentos disponibles.")
             print("Los archivos Excel y el progreso guardado se conservan.")
             print("Ejecute nuevamente el programa más tarde para continuar.")
             exit_code = 1
