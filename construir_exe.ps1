@@ -225,6 +225,7 @@ if (!(Test-Path -LiteralPath $LegacyDocHelper -PathType Leaf)) {
     --hidden-import seleccion_incluidas `
     --add-binary "$NodeExecutable;." `
     --add-data $BundledData `
+    --add-data "$CategoryDirectory;Filtro" `
     --add-data $BundledOcrData `
     --add-data "$LegacyDocHelper;." `
     "iniciar_filtro.py"

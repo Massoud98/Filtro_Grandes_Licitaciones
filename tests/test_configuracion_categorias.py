@@ -81,6 +81,72 @@ class CategoryConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(result, self.directory / "Filtro")
 
+    def test_frozen_external_configuration_priority(self):
+        from unittest.mock import patch
+
+        executable = self.directory / "Iniciar_Filtro.exe"
+        external = self.directory / "Filtro"
+        external.mkdir()
+
+        bundled_root = self.directory / "bundled"
+        (bundled_root / "Filtro").mkdir(parents=True)
+
+        with patch(
+            "aplicacion.servicios.configuracion_categorias.sys._MEIPASS",
+            str(bundled_root),
+            create=True,
+        ):
+            result = category_directory(
+                executable=executable,
+                frozen=True,
+            )
+
+        self.assertEqual(result, external)
+
+    def test_frozen_bundled_fallback(self):
+        from unittest.mock import patch
+
+        executable = self.directory / "Iniciar_Filtro.exe"
+        bundled_root = self.directory / "bundled"
+        bundled = bundled_root / "Filtro"
+        bundled.mkdir(parents=True)
+
+        with patch(
+            "aplicacion.servicios.configuracion_categorias.sys._MEIPASS",
+            str(bundled_root),
+            create=True,
+        ):
+            result = category_directory(
+                executable=executable,
+                frozen=True,
+            )
+
+        self.assertEqual(result, bundled)
+
+    def test_frozen_incomplete_external_not_bypassed(self):
+        from unittest.mock import patch
+
+        executable = self.directory / "Iniciar_Filtro.exe"
+        external = self.directory / "Filtro"
+        external.mkdir()
+
+        bundled_root = self.directory / "bundled"
+        (bundled_root / "Filtro").mkdir(parents=True)
+
+        with patch(
+            "aplicacion.servicios.configuracion_categorias.sys._MEIPASS",
+            str(bundled_root),
+            create=True,
+        ):
+            result = category_directory(
+                executable=executable,
+                frozen=True,
+            )
+
+        self.assertEqual(result, external)
+
+        with self.assertRaises(ValueError):
+            load_editable_categories(result)
     def test_development_path(self):
         source = self.directory / "aplicacion" / "servicios" / "module.py"
         result = category_directory(source=source, frozen=False)

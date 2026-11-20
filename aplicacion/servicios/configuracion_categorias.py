@@ -19,9 +19,18 @@ def category_directory(executable=None, frozen=None, source=None):
 
     if frozen:
         base = Path(executable or sys.executable).resolve().parent
-    else:
-        base = Path(source or __file__).resolve().parents[2]
+        external = base / "Filtro"
 
+        if external.exists():
+            return external
+
+        bundled = Path(
+            getattr(sys, "_MEIPASS", base)
+        ) / "Filtro"
+
+        return bundled
+
+    base = Path(source or __file__).resolve().parents[2]
     return base / "Filtro"
 
 
