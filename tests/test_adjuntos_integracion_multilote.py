@@ -1,4 +1,4 @@
-"""Offline regression tests for production five-tender batch preparation."""
+"""Offline regression tests for three-tender batches and legacy checkpoints."""
 
 import json
 import sys
@@ -62,7 +62,7 @@ class ProductionMultiBatchTests(unittest.TestCase):
         self.authorized = frozenset(self.ids)
 
     def prepare(self, number, ids=None):
-        batches = plan_batches(self.classification)
+        batches = plan_batches(self.classification, checkpoints_root=self.checkpoints)
         return prepare_batch(
             self.classification,
             self.checkpoints,
@@ -73,10 +73,10 @@ class ProductionMultiBatchTests(unittest.TestCase):
             authorized_ids=self.authorized,
         )
 
-    def test_exactly_two_batches_of_five(self):
+    def test_four_batches_of_three_or_fewer(self):
         batches = plan_batches(self.classification)
-        self.assertEqual(len(batches), 2)
-        self.assertEqual([len(batch) for batch in batches], [5, 5])
+        self.assertEqual(len(batches), 4)
+        self.assertEqual([len(batch) for batch in batches], [3, 3, 3, 1])
         self.assertEqual(
             [item for batch in batches for item in batch],
             self.ids,
@@ -89,8 +89,8 @@ class ProductionMultiBatchTests(unittest.TestCase):
         self.assertNotEqual(first_path, second_path)
         self.assertTrue(first_path.is_file())
         self.assertTrue(second_path.is_file())
-        self.assertEqual(first["ids"], self.ids[:5])
-        self.assertEqual(second["ids"], self.ids[5:])
+        self.assertEqual(first["ids"], self.ids[:3])
+        self.assertEqual(second["ids"], self.ids[3:6])
 
     def test_resume_existing_checkpoint(self):
         first_path, first = self.prepare(1)
@@ -128,7 +128,7 @@ class ProductionMultiBatchTests(unittest.TestCase):
         resumed_path, resumed = self.prepare(1)
 
         self.assertEqual(checkpoint_path, resumed_path)
-        self.assertEqual(resumed["ids"], self.ids[:5])
+        self.assertEqual(resumed["ids"], self.ids[:3])
         self.assertEqual(resumed["classification_sha256"], original_hash)
         self.assertEqual(resumed["licitaciones"], original["licitaciones"])
 
@@ -177,9 +177,33 @@ class ProductionMultiBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(CheckpointError, "Historical excluded tender"):
             plan_batches(self.classification, checkpoints_root=self.checkpoints)
 
+    def test_historical_five_tender_checkpoint_is_preserved(self):
+        from checkpoint_descargas import create_checkpoint, save_checkpoint
+
+        self.checkpoints.mkdir(exist_ok=True)
+        checkpoint_path = self.checkpoints / "lote_0001.json"
+
+        checkpoint = create_checkpoint(self.ids[:5], self.classification)
+        save_checkpoint(checkpoint_path, checkpoint)
+        original_bytes = checkpoint_path.read_bytes()
+
+        batches = plan_batches(
+            self.classification,
+            checkpoints_root=self.checkpoints,
+        )
+
+        self.assertEqual([len(batch) for batch in batches], [5, 3, 2])
+        self.assertEqual(batches[0], self.ids[:5])
+
+        resumed_path, resumed = self.prepare(1)
+
+        self.assertEqual(resumed_path, checkpoint_path)
+        self.assertEqual(resumed["ids"], self.ids[:5])
+        self.assertEqual(checkpoint_path.read_bytes(), original_bytes)
+
     def test_wrong_batch_membership_is_rejected(self):
         with self.assertRaises(BatchPlanningError):
-            self.prepare(1, self.ids[5:])
+            self.prepare(1, self.ids[3:6])
 
     def test_incomplete_authorization_is_rejected(self):
         with self.assertRaises(BatchPlanningError):
@@ -189,8 +213,8 @@ class ProductionMultiBatchTests(unittest.TestCase):
                 self.downloads,
                 self.extracted,
                 1,
-                self.ids[:5],
-                authorized_ids=set(self.ids[:5]),
+                self.ids[:3],
+                authorized_ids=set(self.ids[:3]),
             )
 
 

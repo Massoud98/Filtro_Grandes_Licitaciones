@@ -98,7 +98,7 @@ class ProductionRunOfflineTests(unittest.TestCase):
         self.completed.add(tender_id)
         return context
 
-    def execute(self, max_batches=1):
+    def execute(self, max_batches=1, after_group=None):
         with (
             patch.object(
                 orchestrator, "validate_environment",
@@ -136,10 +136,11 @@ class ProductionRunOfflineTests(unittest.TestCase):
             return orchestrator.run(
                 self.classification,
                 max_batches=max_batches,
+                after_group=after_group,
             )
 
     def test_completed_tender_survives_batch_shift(self):
-        self.execute(max_batches=2)
+        self.execute(max_batches=4)
         self.assertEqual(len(self.completed), 10)
 
         payload = json.loads(self.classification.read_text(encoding="utf-8"))
@@ -151,27 +152,61 @@ class ProductionRunOfflineTests(unittest.TestCase):
         self.ids.insert(9, inserted)
 
         self.calls.clear()
-        result = self.execute(max_batches=3)
+        result = self.execute(max_batches=5)
 
-        self.assertEqual(result["batches"], 3)
+        self.assertEqual(result["batches"], 5)
         self.assertEqual(self.completed, set(self.ids))
         self.assertEqual(self.calls.count(inserted), 1)
 
-    def test_one_batch_processes_only_five_included(self):
+
+    def test_callback_runs_after_each_three_tenders(self):
+        observed = []
+
+        self.execute(
+            max_batches=2,
+            after_group=lambda: observed.append(len(self.calls)),
+        )
+
+        self.assertEqual(observed, [3, 6])
+
+    def test_callback_runs_for_short_final_batch(self):
+        observed = []
+
+        self.execute(
+            max_batches=4,
+            after_group=lambda: observed.append(len(self.calls)),
+        )
+
+        self.assertEqual(observed, [3, 6, 9, 10])
+
+    def test_callback_failure_stops_processing(self):
+        def fail_callback():
+            raise RuntimeError("Simulated callback failure")
+
+        with self.assertRaisesRegex(RuntimeError, "callback failure"):
+            self.execute(
+                max_batches=2,
+                after_group=fail_callback,
+            )
+
+        self.assertEqual(self.calls, self.ids[:3])
+        self.assertEqual(self.completed, set(self.ids[:3]))
+
+    def test_one_batch_processes_only_three_included(self):
         result = self.execute()
 
-        self.assertEqual(self.calls, self.ids[:5])
+        self.assertEqual(self.calls, self.ids[:3])
         self.assertNotIn(self.excluded_id, self.calls)
         self.assertEqual(result["batches"], 1)
-        self.assertEqual(result["batches_remaining"], 1)
-        self.assertEqual(result["tenders"], 5)
-        self.assertEqual(result["tenders_remaining"], 5)
+        self.assertEqual(result["batches_remaining"], 3)
+        self.assertEqual(result["tenders"], 3)
+        self.assertEqual(result["tenders_remaining"], 7)
 
     def test_limited_run_authorizes_all_included(self):
         self.execute()
 
         expected = frozenset(self.ids)
-        self.assertEqual(len(self.authorizations), 5)
+        self.assertEqual(len(self.authorizations), 3)
         self.assertTrue(
             all(ids == expected for ids in self.authorizations)
         )
@@ -212,9 +247,9 @@ class ProductionRunOfflineTests(unittest.TestCase):
         self.calls.clear()
         result = self.execute()
 
-        self.assertEqual(result["tenders"], 5)
-        self.assertEqual(self.calls, self.ids[:5])
-        self.assertEqual(self.completed, set(self.ids[:5]))
+        self.assertEqual(result["tenders"], 3)
+        self.assertEqual(self.calls, self.ids[:3])
+        self.assertEqual(self.completed, set(self.ids[:3]))
 
         persisted = json.loads(
             (self.checkpoints / "lote_0001.json").read_text(
@@ -225,7 +260,7 @@ class ProductionRunOfflineTests(unittest.TestCase):
             all(
                 persisted["licitaciones"][tender_id]["status"]
                 == "COMPLETE"
-                for tender_id in self.ids[:5]
+                for tender_id in self.ids[:3]
             )
         )
         self.assertFalse(

@@ -33,6 +33,7 @@ class CoordinatorTests(unittest.TestCase):
     def run_coordinator(
         self, run_date, statuses=None,
         attachment_path=None, attachment_date=None,
+        attachment_handler=None, filter_2_handler=None,
     ):
         from aplicacion.servicios.fechas_ejecucion import (
             fechas_publicacion_para_ejecucion,
@@ -130,8 +131,14 @@ class CoordinatorTests(unittest.TestCase):
                 "__builtins__": __builtins__,
                 "os": os,
                 "run_pipeline": fake_pipeline,
-                "ejecutar_procesamiento_adjuntos": lambda path: {"status": "SUCCESS"},
-                "ejecutar_filtro_2": lambda *args: {"status": "SUCCESS", "ready": 0, "saved": 0, "counts": {}},
+                "ejecutar_procesamiento_adjuntos": (
+                    attachment_handler or
+                    (lambda path, **kwargs: {"status": "SUCCESS"})
+                ),
+                "ejecutar_filtro_2": (
+                    filter_2_handler or
+                    (lambda *args: {"status": "SUCCESS", "ready": 0, "saved": 0, "counts": {}})
+                ),
             }
             exec(isolated_coordinator(), namespace)
 
@@ -159,6 +166,108 @@ class CoordinatorTests(unittest.TestCase):
                     return events, result, None
                 except Exception as exc:
                     return events, None, exc
+
+
+    def test_incremental_groups_update_excel_before_next_group(self):
+        events = []
+
+        def process(path, *, after_group=None):
+            self.assertTrue(callable(after_group))
+            events.append("group_1")
+            after_group()
+            events.append("group_2")
+            after_group()
+            return {"status": "SUCCESS"}
+
+        def evaluate(*args):
+            events.append("filter_2")
+            return {"status": "SUCCESS", "ready": 3, "saved": 3}
+
+        harness_events, result, error = self.run_coordinator(
+            date(2026, 11, 17),
+            attachment_handler=process,
+            filter_2_handler=evaluate,
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(events, [
+            "group_1", "filter_2",
+            "group_2", "filter_2",
+            "filter_2",
+        ])
+        self.assertEqual(
+            [event[0] for event in harness_events].count("filtered"),
+            4,
+        )
+
+    def test_403_still_runs_final_filter_and_excel(self):
+        events = []
+
+        def process(path, *, after_group=None):
+            events.append("blocked")
+            return {
+                "status": "ERROR",
+                "error_type": "BrowserAccessBlocked",
+            }
+
+        def evaluate(*args):
+            events.append("filter_2")
+            return {"status": "SUCCESS", "ready": 2, "saved": 2}
+
+        harness_events, result, error = self.run_coordinator(
+            date(2026, 11, 17),
+            attachment_handler=process,
+            filter_2_handler=evaluate,
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(
+            result["attachment_result"]["error_type"],
+            "BrowserAccessBlocked",
+        )
+        self.assertEqual(result["filter_2_result"]["status"], "SUCCESS")
+        self.assertEqual(events, ["blocked", "filter_2"])
+        self.assertEqual(
+            [event[0] for event in harness_events].count("filtered"),
+            2,
+        )
+
+    def test_incremental_filter_failure_stops_next_group(self):
+        events = []
+
+        def process(path, *, after_group=None):
+            events.append("group_1")
+            try:
+                after_group()
+            except RuntimeError:
+                events.append("stopped")
+                return {
+                    "status": "ERROR",
+                    "error_type": "RuntimeError",
+                }
+            events.append("group_2")
+            return {"status": "SUCCESS"}
+
+        def evaluate(*args):
+            events.append("filter_2")
+            if events.count("filter_2") == 1:
+                return {"status": "ERROR"}
+            return {"status": "SUCCESS"}
+
+        _, result, error = self.run_coordinator(
+            date(2026, 11, 17),
+            attachment_handler=process,
+            filter_2_handler=evaluate,
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(
+            events,
+            ["group_1", "filter_2", "stopped", "filter_2"],
+        )
 
     def test_monday_one_consolidated_report_pair(self):
         friday = date(2026, 11, 13)

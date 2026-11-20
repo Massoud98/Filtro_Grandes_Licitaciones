@@ -546,13 +546,16 @@ def process_tender_with_retry(
     raise ProductionOrchestratorError("Retry attempts exhausted.")
 
 
-def run(classification_path, *, max_batches=None):
+def run(classification_path, *, max_batches=None, after_group=None):
     if max_batches is not None and (
         isinstance(max_batches, bool)
         or not isinstance(max_batches, int)
         or max_batches < 1
     ):
         raise ValueError("max_batches must be a positive integer or None.")
+
+    if after_group is not None and not callable(after_group):
+        raise TypeError("after_group must be callable or None.")
 
     global DOWNLOADS, EXTRACTED, CHECKPOINTS
 
@@ -583,7 +586,7 @@ def run(classification_path, *, max_batches=None):
     print('Licitaciones incluidas:', sum(len(batch) for batch in plan_batches(classification, checkpoints_root=CHECKPOINTS)))
     print('Lotes disponibles:', available_batches)
     print('Lotes seleccionados:', len(batches))
-    print('Tamaño del lote: 5')
+    print('Licitaciones por lote nuevo: 3 (historicos: hasta 5)')
     print('Límite de ejecución:', max_batches if max_batches is not None else "TODOS")
 
     if not batches:
@@ -617,7 +620,7 @@ def run(classification_path, *, max_batches=None):
                             time.sleep(TENDER_DELAY)
 
                         print(
-                            f"\n[{position}/5] {tender_id}",
+                            f"\n[{position}/{len(ids)}] {tender_id}",
                             flush=True,
                         )
 
@@ -648,6 +651,21 @@ def run(classification_path, *, max_batches=None):
                             refresh_daily_workspace(authorized_ids)
 
                         completed += 1
+
+                        if after_group is not None and (
+                            position % 3 == 0 or position == len(ids)
+                        ):
+                            after_group()
+
+                        remaining_in_batch = position < len(ids)
+                        remaining_batches = number < len(batches)
+
+                        if remaining_in_batch or remaining_batches:
+                            print(
+                                "Pausa de 10 segundos antes del siguiente grupo.",
+                                flush=True,
+                            )
+                            time.sleep(10)
 
                     verify_extraction_lifecycle(
                         checkpoint,

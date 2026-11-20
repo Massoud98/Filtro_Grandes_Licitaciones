@@ -164,7 +164,13 @@ class Harness:
             "credential": lambda *args: "TEST_TOKEN",
             "backup_existing": lambda path: self.events.append("backup"),
             "load_existing_publication": lambda *args: None,
-            "ejecutar_procesamiento_adjuntos": lambda path: {"status": "SUCCESS"},
+            "ejecutar_procesamiento_adjuntos": lambda path, **kwargs: {"status": "SUCCESS"},
+            "ejecutar_filtro_2": lambda *args: {
+                "status": "SUCCESS",
+                "ready": 0,
+                "saved": 0,
+                "counts": {},
+            },
         }
 
         exec(isolated_launcher_functions(), namespace)
@@ -214,6 +220,167 @@ class AttachmentLauncherIntegrationTests(unittest.TestCase):
         harness = Harness(self.root, publication_ids)
         harness.setup(self.stack)
         return harness
+
+
+    def test_interrupted_download_still_runs_final_filter_and_excel(self):
+        self.configure()
+        harness = self.harness()
+
+        events = []
+        harness.namespace["ejecutar_procesamiento_adjuntos"] = (
+            lambda path, **kwargs: (
+                events.append("download_blocked"),
+                {"status": "ERROR", "error_type": "BrowserAccessBlocked"},
+            )[1]
+        )
+        harness.namespace["ejecutar_filtro_2"] = (
+            lambda *args: (
+                events.append("filter_2"),
+                {"status": "SUCCESS", "ready": 2, "saved": 2},
+            )[1]
+        )
+
+        result = harness.run()
+
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(result["attachment_result"]["error_type"], "BrowserAccessBlocked")
+        self.assertEqual(result["filter_2_result"]["status"], "SUCCESS")
+        self.assertEqual(events, ["download_blocked", "filter_2"])
+        self.assertGreaterEqual(harness.events.count("filtered_excel"), 2)
+
+    def test_filter_2_failure_reports_error(self):
+        self.configure()
+        harness = self.harness()
+
+        harness.namespace["ejecutar_filtro_2"] = (
+            lambda *args: {"status": "ERROR", "error_type": "ValueError"}
+        )
+
+        result = harness.run()
+
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(result["filter_2_result"]["error_type"], "ValueError")
+
+    def test_attachment_callback_is_passed(self):
+        self.configure()
+        harness = self.harness()
+        observed = []
+
+        def attachment_processor(path, *, after_group=None):
+            observed.append(callable(after_group))
+            return {"status": "SUCCESS"}
+
+        harness.namespace["ejecutar_procesamiento_adjuntos"] = attachment_processor
+        harness.namespace["ejecutar_filtro_2"] = (
+            lambda *args: {"status": "SUCCESS", "ready": 0, "saved": 0}
+        )
+
+        result = harness.run()
+
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(observed, [True])
+
+
+    def test_incremental_callback_updates_excel_before_next_group(self):
+        self.configure()
+        harness = self.harness()
+        events = []
+
+        def evaluate(*args):
+            events.append("filter_2")
+            return {"status": "SUCCESS", "ready": 3, "saved": 3}
+
+        def process(path, *, after_group=None):
+            self.assertTrue(callable(after_group))
+            events.append("group_1")
+            after_group()
+            events.append("group_2")
+            after_group()
+            return {"status": "SUCCESS"}
+
+        harness.namespace["ejecutar_filtro_2"] = evaluate
+        harness.namespace["ejecutar_procesamiento_adjuntos"] = process
+
+        result = harness.run()
+
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(events, [
+            "group_1", "filter_2",
+            "group_2", "filter_2",
+            "filter_2",
+        ])
+        self.assertEqual(harness.events.count("filtered_excel"), 4)
+
+    def test_incremental_filter_failure_stops_next_group(self):
+        self.configure()
+        harness = self.harness()
+        events = []
+
+        def evaluate(*args):
+            events.append("filter_2")
+            if len(events) == 2:
+                return {"status": "ERROR"}
+            return {"status": "SUCCESS"}
+
+        def process(path, *, after_group=None):
+            events.append("group_1")
+            try:
+                after_group()
+            except RuntimeError:
+                events.append("stopped")
+                return {"status": "ERROR", "error_type": "RuntimeError"}
+            events.append("group_2")
+            return {"status": "SUCCESS"}
+
+        harness.namespace["ejecutar_filtro_2"] = evaluate
+        harness.namespace["ejecutar_procesamiento_adjuntos"] = process
+
+        result = harness.run()
+
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(events, [
+            "group_1", "filter_2", "stopped", "filter_2",
+        ])
+
+    def test_incremental_excel_failure_stops_next_group(self):
+        self.configure()
+        harness = self.harness()
+        events = []
+
+        def process(path, *, after_group=None):
+            events.append("group_1")
+            try:
+                after_group()
+            except OSError:
+                events.append("stopped")
+                return {"status": "ERROR", "error_type": "OSError"}
+            events.append("group_2")
+            return {"status": "SUCCESS"}
+
+        harness.namespace["ejecutar_procesamiento_adjuntos"] = process
+
+        calls = [0]
+
+        def failing_excel(*args, **kwargs):
+            calls[0] += 1
+            harness.events.append("filtered_excel")
+            if calls[0] == 2:
+                raise OSError("Simulated Excel write failure")
+            return "filtered.xlsx"
+
+        from unittest.mock import patch
+        import sys
+        import types
+
+        module_name = "aplicacion.servicios.generador_excel_filtrado"
+        replacement = types.ModuleType(module_name)
+        replacement.generar_excel_filtrado = failing_excel
+
+        with patch.dict(sys.modules, {module_name: replacement}):
+            harness.run()
+
+        self.assertEqual(events, ["group_1", "stopped"])
+        self.assertEqual(calls[0], 3)
 
     def test_default_workflow(self):
         self.configure()

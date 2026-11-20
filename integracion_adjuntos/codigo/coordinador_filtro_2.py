@@ -103,7 +103,12 @@ def coordinate_filter_2(
 
         fingerprint = evidence_fingerprint(
             readiness["documents"],
-            api_budget=api_budget,
+            api_budget={
+                "source_date": source_date,
+                "status": api_budget["status"],
+                "amount": api_budget["amount"],
+                "currency": api_budget["currency"],
+            },
         )
 
         cached = reusable_evaluation(

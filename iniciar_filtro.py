@@ -171,7 +171,7 @@ def load_optional_attachment_report():
     return report, report_date
 
 
-def ejecutar_procesamiento_adjuntos(classification_path):
+def ejecutar_procesamiento_adjuntos(classification_path, *, after_group=None):
     """Run production attachment processing without invalidating Excel reports."""
 
     if getattr(sys, "frozen", False):
@@ -226,7 +226,11 @@ def ejecutar_procesamiento_adjuntos(classification_path):
 
         from orquestador_produccion import run
 
-        result = run(classification_path, max_batches=ATTACHMENT_MAX_BATCHES)
+        result = run(
+            classification_path,
+            max_batches=ATTACHMENT_MAX_BATCHES,
+            after_group=after_group,
+        )
 
         if not isinstance(result, dict) or result.get("status") != "SUCCESS":
             raise RuntimeError("Unexpected orchestrator result.")
@@ -450,27 +454,58 @@ def run_pipeline(fecha=None, *, generar_reportes=True):
     filter_result = aplicar_filtros(fecha_iso)
 
     filtered = report_folder / "filtrados" / f"Licitaciones_Filtradas_{fecha_iso}.xlsx"
-    print("\n=== EXCEL FILTRADO ===")
-    if attachment_selection is None:
-        filtered_result = generar_excel_filtrado(fecha_iso)
-    else:
-        filtered_result = generar_excel_filtrado(
-            fecha_iso,
-            attachment_report=attachment_selection[0],
-        )
+    print("\\n=== EXCEL FILTRADO ===")
+    evaluations_path = folder / "evaluaciones_filtro_2.json"
 
-    print("\n=== PROCESAMIENTO DE DOCUMENTOS ===")
-    attachment_result = ejecutar_procesamiento_adjuntos(filters)
+    def actualizar_excel_diario():
+        kwargs = {}
+        if attachment_selection is not None:
+            kwargs["attachment_report"] = attachment_selection[0]
+        if evaluations_path.is_file():
+            kwargs["evaluaciones_filtro_2"] = evaluations_path
+        return generar_excel_filtrado(fecha_iso, **kwargs)
+
+    filtered_result = actualizar_excel_diario()
+
+    def evaluar_grupo_diario():
+        print("\\n=== EVALUACION INCREMENTAL DE DOCUMENTOS ===")
+        evaluation = ejecutar_filtro_2(filters, detail_path, fecha_iso)
+        if evaluation.get("status") == "ERROR":
+            raise RuntimeError(
+                "Fallo Filtro 2. Las evaluaciones guardadas se conservan."
+            )
+        actualizar_excel_diario()
+        print("Excel filtrado actualizado.")
+
+    print("\\n=== PROCESAMIENTO DE DOCUMENTOS ===")
+    attachment_result = ejecutar_procesamiento_adjuntos(
+        filters,
+        after_group=evaluar_grupo_diario,
+    )
+
+    filter_2_result = ejecutar_filtro_2(filters, detail_path, fecha_iso)
+    print("\\n=== ACTUALIZACION FINAL DE EXCEL CON FILTRO 2 ===")
+    filtered_result = actualizar_excel_diario()
 
     summary = filter_result.get("resumen", {})
     result = {
-        "status": ("SUCCESS" if attachment_result.get("status") == "SUCCESS" else "ERROR"), "date": fecha_iso, "published": len(ids),
-        "details": len(details), "included": summary.get("incluida", 0),
+        "status": (
+            "SUCCESS"
+            if attachment_result.get("status") == "SUCCESS"
+            and filter_2_result.get("status") != "ERROR"
+            else "ERROR"
+        ),
+        "date": fecha_iso,
+        "published": len(ids),
+        "details": len(details),
+        "included": summary.get("incluida", 0),
         "manual_review": summary.get("revision_manual", 0),
         "excluded": summary.get("excluida", 0),
-        "original_excel": str(original_result), "filtered_excel": str(filtered_result),
+        "original_excel": str(original_result),
+        "filtered_excel": str(filtered_result),
         "detail_result": detail_result,
         "attachment_result": attachment_result,
+        "filter_2_result": filter_2_result,
     }
     print("\n=== RESUMEN DE EJECUCIÓN ===")
     for key, value in result.items():
@@ -583,10 +618,28 @@ def run_scheduled_pipeline():
 
     filtered = actualizar_excel_filtrado()
 
+    attachment_classification = carpeta_proceso / "filtros_preliminares.json"
+    details_path = carpeta_proceso / "detalles_licitaciones.json"
+
+    def evaluar_grupo_extraido():
+        print("\n=== EVALUACION INCREMENTAL DE DOCUMENTOS ===")
+        resultado = ejecutar_filtro_2(
+            attachment_classification,
+            details_path,
+            fecha_reporte,
+        )
+        if resultado.get("status") == "ERROR":
+            raise RuntimeError(
+                "Fallo Filtro 2. Las evaluaciones guardadas se conservan."
+            )
+        actualizar_excel_filtrado()
+        print("Excel filtrado actualizado.")
+
     print("\n=== PROCESAMIENTO DE DOCUMENTOS CONSOLIDADOS ===")
     attachment_classification = carpeta_proceso / "filtros_preliminares.json"
     attachment_result = ejecutar_procesamiento_adjuntos(
-        attachment_classification
+        attachment_classification,
+        after_group=evaluar_grupo_extraido,
     )
 
     filter_2_result = ejecutar_filtro_2(

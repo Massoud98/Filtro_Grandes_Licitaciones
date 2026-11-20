@@ -1,4 +1,4 @@
-"""Five-tender batch planning and lifecycle-aware checkpoint loading."""
+"""Checkpoint-compatible batch planning and lifecycle-aware loading."""
 
 import hashlib
 import json
@@ -22,11 +22,11 @@ class BatchPlanningError(RuntimeError):
     pass
 
 
-def plan_batches(classification_path, batch_size=5, checkpoints_root=None):
+def plan_batches(classification_path, batch_size=3, checkpoints_root=None):
     """Return ordered batches containing only included tender IDs."""
 
-    if batch_size != 5 or isinstance(batch_size, bool):
-        raise BatchPlanningError("Production batch size must be five.")
+    if batch_size != 3 or isinstance(batch_size, bool):
+        raise BatchPlanningError("Production batch size must be three.")
 
     ids = load_included_tenders(classification_path)
     if checkpoints_root is not None:
@@ -50,7 +50,7 @@ def plan_batches(classification_path, batch_size=5, checkpoints_root=None):
                 except Exception as exc:
                     raise BatchPlanningError("Invalid existing checkpoint.") from exc
                 batch_ids = checkpoint["ids"]
-                if len(batch_ids) > batch_size or seen.intersection(batch_ids):
+                if not batch_ids or len(batch_ids) > 5 or seen.intersection(batch_ids):
                     raise BatchPlanningError("Invalid or duplicate checkpoint membership.")
                 if not set(batch_ids).issubset(set(ids)):
                     raise CheckpointError("Eligible IDs changed. Historical excluded tender requires reconciliation.")
