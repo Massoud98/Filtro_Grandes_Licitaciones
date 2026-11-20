@@ -402,6 +402,51 @@ class PruebasExcelFiltrado(unittest.TestCase):
         )
 
 
+    def test_filtro_2_sin_revision_manual_no_falla(self):
+        """Las categorias con cero licitaciones deben aparecer como cero."""
+        self.resultados[2]["estado"] = "excluida"
+        self.guardar_datos()
+
+        evaluations_path = self.carpeta / "evaluaciones_filtro_2.json"
+        guardar_json(
+            evaluations_path,
+            {
+                "schema_version": 1,
+                "evaluations": {
+                    "TEST-1": {
+                        "tender_id": "TEST-1",
+                        "decision": "APROBADA",
+                        "reasons": [],
+                        "evidence": [],
+                        "evidence_fingerprint": "synthetic-fingerprint",
+                        "rule_version": "filtro2-jessika-v2",
+                    }
+                },
+            },
+        )
+
+        path = modulo.generar_excel_filtrado(
+            FECHA,
+            carpeta_salida=self.raiz / "salida",
+            carpeta_datos=self.carpeta,
+            evaluaciones_filtro_2=evaluations_path,
+        )
+
+        with closing(load_workbook(path, read_only=True, data_only=True)) as book:
+            summary = {
+                row[0]: row[1]
+                for row in book["Resumen"].iter_rows(
+                    min_row=2, values_only=True
+                )
+                if row[0] is not None
+            }
+
+            self.assertEqual(summary["Revision manual"], 0)
+            self.assertEqual(summary["Incluidas Final"], 2)
+            self.assertEqual(summary["Excluidas"], 2)
+            self.assertEqual(book["Revision manual"].max_row, 1)
+
+
 class PruebasExcelTienda(unittest.TestCase):
     """Verifica la nueva hoja Tienda y los avisos de plazo."""
 

@@ -320,17 +320,17 @@ def crear_resumen(libro, reporte):
         ("Incluidas en Filtro 1", reporte["incluidas_filtro_1"]),
         ("Incluidas en Filtro 2", reporte["incluidas_filtro_2"]),
         ("Incluidas en Filtro 3", "Pendiente de implementar"),
-        ("Incluidas Final", resumen["incluida"]),
+        ("Incluidas Final", resumen.get("incluida", 0)),
         ("Posible para Tienda", resumen.get("posible_tienda", 0)),
-        ("Revision manual", resumen["revision_manual"]),
-        ("Excluidas", resumen["excluida"]),
+        ("Revision manual", resumen.get("revision_manual", 0)),
+        ("Excluidas", resumen.get("excluida", 0)),
         (
             "Porcentaje incluidas",
-            resumen["incluida"] / total if total else 0,
+            resumen.get("incluida", 0) / total if total else 0,
         ),
         (
             "Porcentaje excluidas",
-            resumen["excluida"] / total if total else 0,
+            resumen.get("excluida", 0) / total if total else 0,
         ),
         (
             "Porcentaje posible para Tienda",
